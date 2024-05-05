@@ -1,18 +1,24 @@
 #[allow(dead_code, unused_variables, unused_imports)]
 use std::io::{BufRead, BufReader};
+use std::iter::Peekable;
 use thiserror::Error;
+
+// type Tokens = std::iter::Peekable<>
 
 #[derive(Error, Debug)]
 pub enum ParserError<'src> {
     #[error("Unexpected token: {0:?}")]
     UnexpectedToken(Token<'src>),
 
-    #[error("Could not tokenize: {0:?}")]
-    CouldNotTokenize(&'src str),
+    #[error("Reached end of input expecting more")]
+    UnexpectedEOI,
+
+    #[error("Expected token: {0:?}")]
+    ExpectedToken(Token<'src>),
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token<'src> {
     FuncDef = 1,
     Extern = 2,
@@ -21,12 +27,14 @@ pub enum Token<'src> {
     Operator(Ops) = 5,
     OpenParen = 6,
     ClosedParen = 7,
-    Unknown(&'src str) = 8,
+    Comma = 8,
+    Semicolon = 9,
+    Unknown(&'src str) = 10,
     EndOfInput = 0,
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Ops {
     Plus = 0,
     Minus = 1,
@@ -39,7 +47,7 @@ pub enum Ops {
 pub struct Lexer;
 
 impl Lexer {
-    pub fn tokens(input: &str) -> impl Iterator<Item = Token> {
+    pub fn tokens(input: &str) -> Peekable<impl Iterator<Item = Token>> {
         input
             .split_whitespace()
             .map(Self::tokenize)
@@ -67,6 +75,10 @@ impl Lexer {
             // Parenthesis
             "(" => OpenParen,
             ")" => ClosedParen,
+
+            //Delimiters
+            "," => Comma,
+            ";" => Semicolon,
 
             // Everything else
             text => {
