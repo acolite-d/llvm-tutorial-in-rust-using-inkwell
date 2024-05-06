@@ -1,9 +1,8 @@
 #[allow(dead_code, unused_variables, unused_imports)]
 use std::io::{BufRead, BufReader};
-use std::iter::Peekable;
+use std::{iter::Peekable, str::FromStr};
 use thiserror::Error;
 
-// type Tokens = std::iter::Peekable<>
 
 #[derive(Error, Debug)]
 pub enum ParserError<'src> {
@@ -44,52 +43,158 @@ pub enum Ops {
     Assign = 5,
 }
 
-pub struct Lexer;
+// impl<'src> FromStr for Token<'src> {
+//     type Err = ();
 
-impl Lexer {
-    pub fn tokens(input: &str) -> Peekable<impl Iterator<Item = Token>> {
-        input
-            .split_whitespace()
-            .map(Self::tokenize)
-            .chain(std::iter::once(Token::EndOfInput))
-            .peekable()
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         use Token::*;
+
+//         let res = match s {
+//             // Keywords
+//             "def" => FuncDef,
+//             "extern" => Extern,
+
+//             // Operators
+//             "+" => Operator(Ops::Plus),
+//             "-" => Operator(Ops::Minus),
+//             "*" => Operator(Ops::Mult),
+//             "/" => Operator(Ops::Div),
+//             "%" => Operator(Ops::Modulo),
+//             "=" => Operator(Ops::Assign),
+
+//             // Parenthesis
+//             "(" => OpenParen,
+//             ")" => ClosedParen,
+
+//             //Delimiters
+//             "," => Comma,
+//             ";" => Semicolon,
+
+//             // Everything else
+//             text => {
+//                 if let Ok(num) = text.parse::<f64>() {
+//                     Number(num)
+//                 } else {
+//                     if text.chars().nth(0).unwrap().is_alphabetic() {
+//                         Identifier(text)
+//                     } else {
+//                         Unknown(text)
+//                     }
+//                 }
+//             }
+//         };
+
+
+//     }
+// }
+
+impl<'src> Token<'src> {
+    fn is_single_char_token(c: char) -> bool {
+        match c {
+            '+'
+            | '-'
+            | '*'
+            | '/'
+            | '%'
+            | '='
+            | ';'
+            | '('
+            | ')' => true,
+
+            _ => false,
+        }
     }
+}
 
-    #[inline(always)]
-    fn tokenize(string: &str) -> Token {
-        use Token::*;
+#[derive(Debug)]
+pub struct Tokens<'src, I> {
+    iter: I,
+    leftover_slice: Option<&'src str>,
+}
 
-        match string {
-            // Keywords
-            "def" => FuncDef,
-            "extern" => Extern,
+impl<'src, I> Iterator for Tokens<'src, I> 
+where
+    I: Iterator<Item = &'src str>
+{
+    type Item = Token<'src>;
 
-            // Operators
-            "+" => Operator(Ops::Plus),
-            "-" => Operator(Ops::Minus),
-            "*" => Operator(Ops::Mult),
-            "/" => Operator(Ops::Div),
-            "%" => Operator(Ops::Modulo),
-            "=" => Operator(Ops::Assign),
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut slice = self.leftover_slice.take()
+            .or_else(|| self.iter.next())?;
 
-            // Parenthesis
-            "(" => OpenParen,
-            ")" => ClosedParen,
-
-            //Delimiters
-            "," => Comma,
-            ";" => Semicolon,
-
-            // Everything else
-            text => {
-                if let Ok(num) = text.parse::<f64>() {
-                    Number(num)
+        if slice.len() > 1 {
+            if let Some(pos) = slice.find(Token::is_single_char_token) {
+                if pos != 0 {
+                    let (immed, rest) = slice.split_at(pos);
+                    slice = immed;
+                    self.leftover_slice.replace(rest);
                 } else {
-                    if text.chars().nth(0).unwrap().is_alphabetic() {
-                        Identifier(text)
-                    } else {
-                        Unknown(text)
-                    }
+                    let (immed, rest) = slice.split_at(1);
+                    slice = immed;
+                    self.leftover_slice.replace(rest);
+                }
+            }
+        }
+
+        Some(tokenize(slice))
+    }
+}
+
+impl<'src, I> Tokens<'src, I> {
+    pub fn new(iter: I) -> Self {
+        Self { iter, leftover_slice: None }
+    }
+}
+
+pub trait Lex<'src, I>: IntoIterator<Item = &'src str> + Sized
+where
+    I: Iterator<Item = &'src str>
+{
+    fn lex(self) -> Tokens<'src, I>;
+}
+
+impl<'src, I: Iterator<Item = &'src str>> Lex<'src, I> for I {
+    fn lex(self) -> Tokens<'src, I> {
+        Tokens::new(self)
+    }
+}
+
+#[inline(always)]
+fn tokenize(string: &str) -> Token {
+    use Token::*;
+
+    assert!(string.len() != 0);
+
+    match string {
+        // Keywords
+        "def" => FuncDef,
+        "extern" => Extern,
+
+        // Operators
+        "+" => Operator(Ops::Plus),
+        "-" => Operator(Ops::Minus),
+        "*" => Operator(Ops::Mult),
+        "/" => Operator(Ops::Div),
+        "%" => Operator(Ops::Modulo),
+        "=" => Operator(Ops::Assign),
+
+        // Parenthesis
+        "(" => OpenParen,
+        ")" => ClosedParen,
+
+        //Delimiters
+        "," => Comma,
+        ";" => Semicolon,
+
+        // Everything else
+        text => {
+            if let Ok(num) = text.parse::<f64>() {
+                Number(num)
+            } else {
+                if text.chars().nth(0).unwrap().is_alphabetic() {
+                    Identifier(text)
+                } else {
+                    Unknown(text)
                 }
             }
         }
@@ -104,8 +209,8 @@ mod tests {
 
     #[test]
     fn lexing_nums() {
-        let input = " 2.3  4.654345   700   0.23423  ".to_string();
-        let tokens = Lexer::tokens(&input);
+        let input = " 2.3  4.654345   700   0.23423  ";
+        let tokens = input.split_whitespace().lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -114,15 +219,15 @@ mod tests {
                 Number(4.654345),
                 Number(700.0),
                 Number(0.23423),
-                EndOfInput,
+                // EndOfInput,
             ]
         );
     }
 
     #[test]
     fn lexing_identifiers() {
-        let input = " var1   xyz   GLBAL   some_count ".to_string();
-        let tokens = Lexer::tokens(&input);
+        let input = " var1   xyz   GLBAL   some_count ";
+        let tokens = input.split_whitespace().lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -131,15 +236,15 @@ mod tests {
                 Identifier(&"xyz"),
                 Identifier(&"GLBAL"),
                 Identifier(&"some_count"),
-                EndOfInput,
+                // EndOfInput,
             ]
         );
     }
 
     #[test]
     fn lexing_operators() {
-        let input = "   + - * / % =   ".to_string();
-        let tokens = Lexer::tokens(&input);
+        let input = " + - * / % = ";
+        let tokens = input.split_whitespace().lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -150,23 +255,68 @@ mod tests {
                 Operator(Div),
                 Operator(Modulo),
                 Operator(Assign),
-                EndOfInput,
+                // EndOfInput,
             ]
         );
     }
 
     #[test]
     fn lexing_mixed() {
-        let input = " def   extern  1.23  x".to_string();
-        let tokens = Lexer::tokens(&input);
+        let input = " def   extern  1.23  x";
+        let tokens = input.split_whitespace().lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
-            vec![FuncDef, Extern, Number(1.23), Identifier(&"x"), EndOfInput]
+            vec![FuncDef, Extern, Number(1.23), Identifier(&"x")]
         );
     }
 
-    // fn lexing_unknown() {
+    #[test]
+    fn lexing_calls() {
+        let mut input = " func1(2 5) ";
+        let mut tokens = input.split_whitespace().lex();
 
-    // }
+        assert_eq!(
+            tokens.collect::<Vec<Token>>(),
+            vec![
+                Identifier(&"func1"), 
+                OpenParen, 
+                Number(2.0), 
+                Number(5.0), 
+                ClosedParen,
+            ]
+        );
+
+        input = " func2 () ";
+        tokens = input.split_whitespace().lex();
+
+        assert_eq!(
+            tokens.collect::<Vec<Token>>(),
+            vec![
+                Identifier(&"func2"),
+                OpenParen,
+                ClosedParen,
+            ]
+        );
+
+        input = " func3 (x + 2) ";
+        tokens = input.split_whitespace().lex();
+
+        assert_eq!(
+            tokens.collect::<Vec<Token>>(),
+            vec![
+                Identifier(&"func3"),
+                OpenParen,
+                Identifier(&"x"),
+                Operator(Ops::Plus),
+                Number(2.0),
+                ClosedParen,
+            ]
+        )
+    }
+
+    #[test]
+    fn lexing_function_defs() {
+
+    }
 }

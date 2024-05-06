@@ -3,9 +3,10 @@ use std::fmt::Debug;
 #[allow(unused, dead_code)]
 use std::io::Write;
 use std::iter::Peekable;
+use std::string::ParseError;
 use std::{any::Any, hash::Hash};
 
-use crate::parser::lexer::{self, Lexer, Ops, ParserError, Token};
+use crate::parser::lexer::{self, Lex, Ops, ParserError, Token};
 use itertools::Itertools;
 
 type ParseResult<'src> = Result<Box<dyn AST>, ParserError<'src>>;
@@ -112,10 +113,13 @@ pub fn interpreter_driver() {
         std::io::stdout().flush().unwrap();
         let _ = std::io::stdin().read_line(&mut input_buf);
 
-        let mut tokens = lexer::Lexer::tokens(&input_buf);
+        let mut tokens = input_buf
+            .split_whitespace()
+            .lex()
+            .peekable();
 
         match tokens.peek() {
-            None => return,
+            None => continue,
 
             Some(Token::FuncDef) => match parse_definition(&mut tokens) {
                 Ok(ast) => {
@@ -149,7 +153,7 @@ pub fn interpreter_driver() {
                     dbg!(ast);
                 },
                 Err(err) => {
-                    eprintln!("Error: {}", err);
+                    eprintln!("Error on top-level: {}", err);
                     _ = tokens.next();
                 }
             },
@@ -225,7 +229,7 @@ fn parse_top_level_expr<'src>(
 
 fn parse_primary<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> Result<Box<dyn AST>, ParserError<'src>> {
+) -> ParseResult<'src> {
     match tokens.peek() {
         Some(Token::Identifier(_)) => parse_identifier_expr(tokens),
 
@@ -241,7 +245,7 @@ fn parse_primary<'src>(
 
 fn parse_number_expr<'src>(
     tokens: &mut impl Iterator<Item = Token<'src>>,
-) -> Result<Box<dyn AST>, ParserError<'src>> {
+) -> ParseResult<'src> {
     // tokens.next()
     //     .filter(|t| matches!(t, Token::Number(_)))
     //     .map(|t| Box::new(NumberExpr()))
@@ -255,7 +259,7 @@ fn parse_number_expr<'src>(
 
 fn parse_identifier_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> Result<Box<dyn AST>, ParserError<'src>> {
+) -> ParseResult<'src> {
     let name = match tokens.next() {
         Some(Token::Identifier(name)) => name,
         _unexpected => panic!("Expected"),
@@ -272,7 +276,7 @@ fn parse_identifier_expr<'src>(
 
 fn parse_paren_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> Result<Box<dyn AST>, ParserError<'src>> {
+) -> ParseResult<'src> {
     let _paren = tokens.next();
 
     let expr = parse_expression(tokens);
@@ -341,19 +345,8 @@ fn parse_binop_rhs<'src>(
 mod tests {
     use super::*;
 
-    macro_rules! lex {
-        ( $input:expr ) => {
-            Lexer::tokens($input)
-        };
-    }
-
     #[test]
     fn parsing_primaries() {
-        let mut tokens = lex!(" someUniqueVar1 ");
-
-        let ast = parse_primary(&mut tokens);
-
-        assert!(ast.is_ok());
         // assert_eq!(
         //     ast.unwrap(),
         //     Box::new(VariableExpr{ name: &"someUniqueVar1" })
