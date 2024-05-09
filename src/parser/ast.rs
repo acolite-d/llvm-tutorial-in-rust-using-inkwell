@@ -265,16 +265,32 @@ fn parse_identifier_expr<'src>(
         _unexpected => panic!("Expected"),
     };
 
+    // Call Expression
     if let Some(Token::OpenParen) = tokens.peek() {
+
         let _open_paren = tokens.next();
 
+        let mut arglist = vec![];
+        
         loop {
-            
+            if let Some(Token::ClosedParen) = tokens.peek() { break; }
+
+            parse_expression(tokens).map(|arg_expr| arglist.push(arg_expr))?;
+
+            if let Some(Token::Comma) = tokens.peek() { 
+                tokens.next();
+                continue; 
+            }
         }
 
         let _closed_paren = tokens.next();
 
-    } else {
+        Ok(Box::new(CallExpr {
+            name: name.to_string(),
+            args: arglist,
+        }))
+
+    } else { // Variable Expression
         Ok(Box::new(VariableExpr {
             name: name.to_string(),
         }))
@@ -346,14 +362,12 @@ fn parse_binop_rhs<'src>(
     }
 }
 
-// fn parse_argument<'src>(token: Token<'src>) -> Result<Box<dyn AST,
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parsing_primaries() {
+    fn parsing_primary_expressions() {
         // assert_eq!(
         //     ast.unwrap(),
         //     Box::new(VariableExpr{ name: &"someUniqueVar1" })

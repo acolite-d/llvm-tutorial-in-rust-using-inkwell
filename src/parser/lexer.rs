@@ -61,6 +61,48 @@ impl<'src> Token<'src> {
     }
 }
 
+#[inline(always)]
+fn tokenize(string: &str) -> Token {
+    use Token::*;
+
+    assert!(string.len() != 0);
+
+    match string {
+        // Keywords
+        "def" => FuncDef,
+        "extern" => Extern,
+
+        // Operators
+        "+" => Operator(Ops::Plus),
+        "-" => Operator(Ops::Minus),
+        "*" => Operator(Ops::Mult),
+        "/" => Operator(Ops::Div),
+        "%" => Operator(Ops::Modulo),
+        "=" => Operator(Ops::Assign),
+
+        // Parenthesis
+        "(" => OpenParen,
+        ")" => ClosedParen,
+
+        //Delimiters
+        "," => Comma,
+        ";" => Semicolon,
+
+        // Everything else
+        text => {
+            if let Ok(num) = text.parse::<f64>() {
+                Number(num)
+            } else {
+                if text.chars().nth(0).unwrap().is_alphabetic() {
+                    Identifier(text)
+                } else {
+                    Unknown(text)
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Tokens<'src, I> {
     iter: I,
@@ -111,48 +153,6 @@ where
 impl<'src, I: Iterator<Item = &'src str>> Lex<'src, I> for I {
     fn lex(self) -> Tokens<'src, I> {
         Tokens::new(self)
-    }
-}
-
-#[inline(always)]
-fn tokenize(string: &str) -> Token {
-    use Token::*;
-
-    assert!(string.len() != 0);
-
-    match string {
-        // Keywords
-        "def" => FuncDef,
-        "extern" => Extern,
-
-        // Operators
-        "+" => Operator(Ops::Plus),
-        "-" => Operator(Ops::Minus),
-        "*" => Operator(Ops::Mult),
-        "/" => Operator(Ops::Div),
-        "%" => Operator(Ops::Modulo),
-        "=" => Operator(Ops::Assign),
-
-        // Parenthesis
-        "(" => OpenParen,
-        ")" => ClosedParen,
-
-        //Delimiters
-        "," => Comma,
-        ";" => Semicolon,
-
-        // Everything else
-        text => {
-            if let Ok(num) = text.parse::<f64>() {
-                Number(num)
-            } else {
-                if text.chars().nth(0).unwrap().is_alphabetic() {
-                    Identifier(text)
-                } else {
-                    Unknown(text)
-                }
-            }
-        }
     }
 }
 
