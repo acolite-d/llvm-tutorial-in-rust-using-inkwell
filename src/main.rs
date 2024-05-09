@@ -7,5 +7,5 @@ mod parser;
 use parser::ast::interpreter_driver;
 
 fn main() {
-    interpreter_driver()
+    interpreter_driver();
 }

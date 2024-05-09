@@ -29,7 +29,6 @@ pub enum Token<'src> {
     Comma = 8,
     Semicolon = 9,
     Unknown(&'src str) = 10,
-    EndOfInput = 0,
 }
 
 #[repr(u8)]
@@ -43,51 +42,6 @@ pub enum Ops {
     Assign = 5,
 }
 
-// impl<'src> FromStr for Token<'src> {
-//     type Err = ();
-
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         use Token::*;
-
-//         let res = match s {
-//             // Keywords
-//             "def" => FuncDef,
-//             "extern" => Extern,
-
-//             // Operators
-//             "+" => Operator(Ops::Plus),
-//             "-" => Operator(Ops::Minus),
-//             "*" => Operator(Ops::Mult),
-//             "/" => Operator(Ops::Div),
-//             "%" => Operator(Ops::Modulo),
-//             "=" => Operator(Ops::Assign),
-
-//             // Parenthesis
-//             "(" => OpenParen,
-//             ")" => ClosedParen,
-
-//             //Delimiters
-//             "," => Comma,
-//             ";" => Semicolon,
-
-//             // Everything else
-//             text => {
-//                 if let Ok(num) = text.parse::<f64>() {
-//                     Number(num)
-//                 } else {
-//                     if text.chars().nth(0).unwrap().is_alphabetic() {
-//                         Identifier(text)
-//                     } else {
-//                         Unknown(text)
-//                     }
-//                 }
-//             }
-//         };
-
-
-//     }
-// }
-
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
@@ -98,6 +52,7 @@ impl<'src> Token<'src> {
             | '%'
             | '='
             | ';'
+            | ','
             | '('
             | ')' => true,
 
@@ -273,7 +228,7 @@ mod tests {
 
     #[test]
     fn lexing_calls() {
-        let mut input = " func1(2 5) ";
+        let mut input = " func1(2, 5, 10) ";
         let mut tokens = input.split_whitespace().lex();
 
         assert_eq!(
@@ -282,7 +237,10 @@ mod tests {
                 Identifier(&"func1"), 
                 OpenParen, 
                 Number(2.0), 
-                Number(5.0), 
+                Comma,
+                Number(5.0),
+                Comma,
+                Number(10.0),
                 ClosedParen,
             ]
         );
@@ -312,11 +270,37 @@ mod tests {
                 Number(2.0),
                 ClosedParen,
             ]
-        )
+        );
     }
 
     #[test]
     fn lexing_function_defs() {
+        let mut input = " def myCalculation(arg1 arg2) ";
+        let mut tokens = input.split_whitespace().lex();
 
+        assert_eq!(
+            tokens.collect::<Vec<Token>>(),
+            vec![
+                FuncDef,
+                Identifier(&"myCalculation"),
+                OpenParen,
+                Identifier(&"arg1"),
+                Identifier(&"arg2"),
+                ClosedParen,
+            ]
+        );
+
+        input = " def noParamsCall ( ) ";
+        tokens = input.split_whitespace().lex();
+
+        assert_eq!(
+            tokens.collect::<Vec<Token>>(),
+            vec![
+                FuncDef,
+                Identifier(&"noParamsCall"),
+                OpenParen,
+                ClosedParen,
+            ]
+        );
     }
 }

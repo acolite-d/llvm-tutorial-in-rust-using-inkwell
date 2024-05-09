@@ -266,7 +266,14 @@ fn parse_identifier_expr<'src>(
     };
 
     if let Some(Token::OpenParen) = tokens.peek() {
-        todo!()
+        let _open_paren = tokens.next();
+
+        loop {
+            
+        }
+
+        let _closed_paren = tokens.next();
+
     } else {
         Ok(Box::new(VariableExpr {
             name: name.to_string(),
