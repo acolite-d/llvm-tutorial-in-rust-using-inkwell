@@ -1,20 +1,6 @@
 #[allow(dead_code, unused_variables, unused_imports)]
 use std::io::{BufRead, BufReader};
-use std::{iter::Peekable, str::FromStr};
-use thiserror::Error;
-
-
-#[derive(Error, Debug)]
-pub enum ParserError<'src> {
-    #[error("Unexpected token: {0:?}")]
-    UnexpectedToken(Token<'src>),
-
-    #[error("Reached end of input expecting more")]
-    UnexpectedEOI,
-
-    #[error("Expected token: {0:?}")]
-    ExpectedToken(Token<'src>),
-}
+use std::str::SplitWhitespace;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,16 +31,7 @@ pub enum Ops {
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
-            '+'
-            | '-'
-            | '*'
-            | '/'
-            | '%'
-            | '='
-            | ';'
-            | ','
-            | '('
-            | ')' => true,
+            '+' | '-' | '*' | '/' | '%' | '=' | ';' | ',' | '(' | ')' => true,
 
             _ => false,
         }
@@ -109,15 +86,14 @@ pub struct Tokens<'src, I> {
     leftover_slice: Option<&'src str>,
 }
 
-impl<'src, I> Iterator for Tokens<'src, I> 
+impl<'src, I> Iterator for Tokens<'src, I>
 where
-    I: Iterator<Item = &'src str>
+    I: Iterator<Item = &'src str>,
 {
     type Item = Token<'src>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut slice = self.leftover_slice.take()
-            .or_else(|| self.iter.next())?;
+        let mut slice = self.leftover_slice.take().or_else(|| self.iter.next())?;
 
         if slice.len() > 1 {
             if let Some(pos) = slice.find(Token::is_single_char_token) {
@@ -137,22 +113,22 @@ where
     }
 }
 
-impl<'src, I> Tokens<'src, I> {
-    pub fn new(iter: I) -> Self {
-        Self { iter, leftover_slice: None }
+pub trait Lex {
+    fn lex(&self) -> Tokens<SplitWhitespace>;
+}
+
+impl Lex for str {
+    fn lex(&self) -> Tokens<SplitWhitespace> {
+        Tokens::new(self.split_whitespace())
     }
 }
 
-pub trait Lex<'src, I>: IntoIterator<Item = &'src str> + Sized
-where
-    I: Iterator<Item = &'src str>
-{
-    fn lex(self) -> Tokens<'src, I>;
-}
-
-impl<'src, I: Iterator<Item = &'src str>> Lex<'src, I> for I {
-    fn lex(self) -> Tokens<'src, I> {
-        Tokens::new(self)
+impl<'src, I> Tokens<'src, I> {
+    pub fn new(iter: I) -> Self {
+        Self {
+            iter,
+            leftover_slice: None,
+        }
     }
 }
 
@@ -165,7 +141,7 @@ mod tests {
     #[test]
     fn lexing_nums() {
         let input = " 2.3  4.654345   700   0.23423  ";
-        let tokens = input.split_whitespace().lex();
+        let tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -174,7 +150,6 @@ mod tests {
                 Number(4.654345),
                 Number(700.0),
                 Number(0.23423),
-                // EndOfInput,
             ]
         );
     }
@@ -182,7 +157,7 @@ mod tests {
     #[test]
     fn lexing_identifiers() {
         let input = " var1   xyz   GLBAL   some_count ";
-        let tokens = input.split_whitespace().lex();
+        let tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -191,7 +166,6 @@ mod tests {
                 Identifier(&"xyz"),
                 Identifier(&"GLBAL"),
                 Identifier(&"some_count"),
-                // EndOfInput,
             ]
         );
     }
@@ -199,7 +173,7 @@ mod tests {
     #[test]
     fn lexing_operators() {
         let input = " + - * / % = ";
-        let tokens = input.split_whitespace().lex();
+        let tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -210,7 +184,6 @@ mod tests {
                 Operator(Div),
                 Operator(Modulo),
                 Operator(Assign),
-                // EndOfInput,
             ]
         );
     }
@@ -218,7 +191,7 @@ mod tests {
     #[test]
     fn lexing_mixed() {
         let input = " def   extern  1.23  x";
-        let tokens = input.split_whitespace().lex();
+        let tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -229,14 +202,14 @@ mod tests {
     #[test]
     fn lexing_calls() {
         let mut input = " func1(2, 5, 10) ";
-        let mut tokens = input.split_whitespace().lex();
+        let mut tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
             vec![
-                Identifier(&"func1"), 
-                OpenParen, 
-                Number(2.0), 
+                Identifier(&"func1"),
+                OpenParen,
+                Number(2.0),
                 Comma,
                 Number(5.0),
                 Comma,
@@ -246,19 +219,15 @@ mod tests {
         );
 
         input = " func2 () ";
-        tokens = input.split_whitespace().lex();
+        tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
-            vec![
-                Identifier(&"func2"),
-                OpenParen,
-                ClosedParen,
-            ]
+            vec![Identifier(&"func2"), OpenParen, ClosedParen,]
         );
 
         input = " func3 (x + 2) ";
-        tokens = input.split_whitespace().lex();
+        tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -276,7 +245,7 @@ mod tests {
     #[test]
     fn lexing_function_defs() {
         let mut input = " def myCalculation(arg1 arg2) ";
-        let mut tokens = input.split_whitespace().lex();
+        let mut tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
@@ -291,16 +260,11 @@ mod tests {
         );
 
         input = " def noParamsCall ( ) ";
-        tokens = input.split_whitespace().lex();
+        tokens = input.lex();
 
         assert_eq!(
             tokens.collect::<Vec<Token>>(),
-            vec![
-                FuncDef,
-                Identifier(&"noParamsCall"),
-                OpenParen,
-                ClosedParen,
-            ]
+            vec![FuncDef, Identifier(&"noParamsCall"), OpenParen, ClosedParen,]
         );
     }
 }

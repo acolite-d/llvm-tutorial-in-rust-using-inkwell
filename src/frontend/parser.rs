@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
-#[allow(unused, dead_code)]
 use std::io::Write;
 use std::iter::Peekable;
-use std::string::ParseError;
-use std::{any::Any, hash::Hash};
+use std::str::SplitWhitespace;
+use std::any::Any;
 
-use crate::parser::lexer::{self, Lex, Ops, ParserError, Token};
-use itertools::Itertools;
+use thiserror::Error;
 
-type ParseResult<'src> = Result<Box<dyn AST>, ParserError<'src>>;
+use crate::frontend::{
+    ast::*,
+    lexer::{Lex, Ops, Token, Tokens},
+};
 
 lazy_static! {
     static ref OP_PRECEDENCE: HashMap<Ops, i32> = {
@@ -23,157 +23,30 @@ lazy_static! {
     };
 }
 
-// trait DynEq {
-//     fn as_any(&self) -> &dyn Any;
+#[derive(Error, PartialEq, Debug)]
+pub enum ParserError<'src> {
+    #[error("Unexpected token: {0:?}")]
+    UnexpectedToken(Token<'src>),
 
-//     fn dyn_eq(&self, other: &dyn DynEq) -> bool;
-// }
+    #[error("Reached end of input expecting more")]
+    UnexpectedEOI,
 
-// impl<T> DynEq for T
-// where
-//     T: PartialEq + 'static
-// {
-//     fn as_any(&self) -> &dyn Any {
-//         self
-//     }
-
-//     fn dyn_eq(&self, other: &dyn DynEq) -> bool {
-//         other.as_any().downcast_ref::<Self>().map_or(false, |other| other == self)
-//     }
-// }
-
-// impl PartialEq for Box<dyn AST> {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.dyn_eq(other)
-//     }
-// }
-
-pub trait AST: Debug {
-    fn codegen(&self) {
-        todo!()
-    }
+    #[error("Expected token: {0:?}")]
+    ExpectedToken(Token<'src>),
 }
 
-#[derive(Debug)]
-struct NumberExpr(f64);
+type ParseResult<'src> = Result<Box<dyn AST>, ParserError<'src>>;
 
-impl AST for NumberExpr {}
-
-#[derive(Debug)]
-struct VariableExpr {
-    name: String,
-}
-
-impl AST for VariableExpr {}
-
-#[derive(Debug)]
-struct BinaryExpr {
-    op: Ops,
-    left: Box<dyn AST>,
-    right: Box<dyn AST>,
-}
-
-impl AST for BinaryExpr {}
-
-#[derive(Debug)]
-struct CallExpr {
-    name: String,
-    args: Vec<Box<dyn AST>>,
-}
-
-impl AST for CallExpr {}
-
-#[derive(Debug)]
-struct Prototype {
-    name: String,
-    args: Vec<String>,
-}
-
-impl AST for Prototype {}
-
-#[derive(Debug)]
-struct Function {
-    proto: Box<dyn AST>,
-    body: Box<dyn AST>,
-}
-
-impl AST for Function {}
-
-pub fn build_ast<'src>(
-    tokens: impl Iterator<Item = Token<'src>>,
-) -> Result<Vec<Box<dyn AST>>, ParserError<'src>> {
-    todo!()
-}
-
-pub fn interpreter_driver() {
-    let mut input_buf = String::new();
-
-    loop {
-        print!("Ready >> ");
-        std::io::stdout().flush().unwrap();
-        let _ = std::io::stdin().read_line(&mut input_buf);
-
-        let mut tokens = input_buf
-            .split_whitespace()
-            .lex()
-            .peekable();
-
-        match tokens.peek() {
-            None => continue,
-
-            Some(Token::FuncDef) => match parse_definition(&mut tokens) {
-                Ok(ast) => {
-                    println!("Parsed a function definition.");
-                    dbg!(ast);
-                },
-                Err(err) => {
-                    eprintln!("Error: {}", err);
-                    _ = tokens.next();
-                }
-            },
-
-            Some(Token::Extern) => match parse_extern(&mut tokens) {
-                Ok(ast) => {
-                    println!("Parsed an extern.");
-                    dbg!(ast);
-                },
-                Err(err) => {
-                    eprintln!("Error: {}", err);
-                    _ = tokens.next();
-                }
-            },
-
-            Some(Token::Semicolon) => {
-                _ = tokens.next();
-            }
-
-            Some(_top_level_token) => match parse_top_level_expr(&mut tokens) {
-                Ok(ast) => {
-                    println!("Parsed a top-level expression.");
-                    dbg!(ast);
-                },
-                Err(err) => {
-                    eprintln!("Error on top-level: {}", err);
-                    _ = tokens.next();
-                }
-            },
-        }
-
-        std::mem::drop(tokens);
-        input_buf.clear();
-    }
-}
-
-fn parse_extern<'src>(
+pub fn parse_extern<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> ParseResult<'src> {
+) -> Result<Box<Prototype>, ParserError<'src>> {
     let _keyword = tokens.next();
     parse_prototype(tokens)
 }
 
-fn parse_prototype<'src>(
+pub fn parse_prototype<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> ParseResult<'src> {
+) -> Result<Box<Prototype>, ParserError<'src>> {
     let Some(Token::Identifier(name)) = tokens.next() else {
         return Err(ParserError::ExpectedToken(Token::Identifier(&"")));
     };
@@ -201,7 +74,7 @@ fn parse_prototype<'src>(
     }))
 }
 
-fn parse_definition<'src>(
+pub fn parse_definition<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ParseResult<'src> {
     // swallow the def keyword
@@ -214,7 +87,7 @@ fn parse_definition<'src>(
     Ok(Box::new(Function { proto, body }))
 }
 
-fn parse_top_level_expr<'src>(
+pub fn parse_top_level_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ParseResult<'src> {
     let expr = parse_expression(tokens)?;
@@ -243,13 +116,7 @@ fn parse_primary<'src>(
     }
 }
 
-fn parse_number_expr<'src>(
-    tokens: &mut impl Iterator<Item = Token<'src>>,
-) -> ParseResult<'src> {
-    // tokens.next()
-    //     .filter(|t| matches!(t, Token::Number(_)))
-    //     .map(|t| Box::new(NumberExpr()))
-
+fn parse_number_expr<'src>(tokens: &mut impl Iterator<Item = Token<'src>>) -> ParseResult<'src> {
     if let Some(Token::Number(num)) = tokens.next() {
         Ok(Box::new(NumberExpr(num)))
     } else {
@@ -267,19 +134,20 @@ fn parse_identifier_expr<'src>(
 
     // Call Expression
     if let Some(Token::OpenParen) = tokens.peek() {
-
         let _open_paren = tokens.next();
 
         let mut arglist = vec![];
-        
+
         loop {
-            if let Some(Token::ClosedParen) = tokens.peek() { break; }
+            if let Some(Token::ClosedParen) = tokens.peek() {
+                break;
+            }
 
             parse_expression(tokens).map(|arg_expr| arglist.push(arg_expr))?;
 
-            if let Some(Token::Comma) = tokens.peek() { 
+            if let Some(Token::Comma) = tokens.peek() {
                 tokens.next();
-                continue; 
+                continue;
             }
         }
 
@@ -289,8 +157,8 @@ fn parse_identifier_expr<'src>(
             name: name.to_string(),
             args: arglist,
         }))
-
-    } else { // Variable Expression
+    } else {
+        // Variable Expression
         Ok(Box::new(VariableExpr {
             name: name.to_string(),
         }))
@@ -365,17 +233,49 @@ fn parse_binop_rhs<'src>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use Ops::*;
+    use Token::*;
+
+    macro_rules! ast_node {
+        ( $node:expr ) => {
+            Box::new($node) as Box<dyn AST>
+        };
+    }
 
     #[test]
     fn parsing_primary_expressions() {
-        // assert_eq!(
-        //     ast.unwrap(),
-        //     Box::new(VariableExpr{ name: &"someUniqueVar1" })
-        // )
+        let mut input = " 3.14; ";
+        let mut ast = input.parse_into_ast(parse_primary);
 
-        // assert_eq!(
-        //     Ok(Box::new(NumberExpr(234.4))),
-        //     ast
-        // );
+        assert_eq!(ast, Ok(ast_node!(NumberExpr::new(3.14))));
+
+        input = " 2 + 3; ";
+        ast = input.parse_into_ast(parse_expression);
+
+        assert_eq!(
+            ast,
+            Ok(ast_node!(BinaryExpr::new(
+                Ops::Plus,
+                ast_node!(NumberExpr::new(2.0)),
+                ast_node!(NumberExpr::new(3.0)),
+            )))
+        );
+
+        input = " var1 * var2; ";
+        ast = input.parse_into_ast(parse_expression);
+
+        assert_eq!(
+            ast,
+            Ok(ast_node!(BinaryExpr::new(
+                Ops::Mult,
+                ast_node!(VariableExpr::new("var1".to_string())),
+                ast_node!(VariableExpr::new("var2".to_string())),
+            )))
+        );
     }
+
+    #[test]
+    fn parsing_binorphs() {}
+
+    fn parsing_functions() {}
 }

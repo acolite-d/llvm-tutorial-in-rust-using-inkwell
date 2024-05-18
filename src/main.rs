@@ -1,11 +1,13 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::io::Write;
+mod backend;
+mod frontend;
+mod repl;
 
-mod parser;
-use parser::ast::interpreter_driver;
+use backend::llvm_backend;
+use repl::{ast_parser_driver, llvm_ir_gen_driver};
 
 fn main() {
-    interpreter_driver();
+    llvm_ir_gen_driver();
 }
