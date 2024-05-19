@@ -92,7 +92,10 @@ pub fn llvm_ir_gen_driver() {
                 Ok(ast) => {
                     println!("Parsed a function definition.");
                     match ast.codegen(&sesh_ctx) {
-                        Ok(ir) => sesh_ctx.dump(),
+                        Ok(ir) => {
+                            sesh_ctx.run_passes();
+                            sesh_ctx.dump_module();
+                        },
                         Err(e) => eprintln!("Backend error: {}", e)
                     }
                 }
@@ -106,7 +109,7 @@ pub fn llvm_ir_gen_driver() {
                 Ok(ast) => {
                     println!("Parsed an extern.");
                     match ast.codegen(&sesh_ctx) {
-                        Ok(ir) => sesh_ctx.dump(),
+                        Ok(ir) => sesh_ctx.dump_module(),
                         Err(e) => eprintln!("Backend error: {}", e)
                     }
                 }
@@ -125,7 +128,8 @@ pub fn llvm_ir_gen_driver() {
                     println!("Parsed a top level expression.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(ir) => { 
-                            sesh_ctx.dump();
+                            sesh_ctx.run_passes();
+                            sesh_ctx.dump_module();
                             unsafe { ir.into_function_value().delete(); }
                         }
                         Err(e) => eprintln!("Backend error: {}", e)

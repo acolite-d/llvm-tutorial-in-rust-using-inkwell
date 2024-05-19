@@ -5,11 +5,14 @@ use std::sync::Mutex;
 
 use inkwell::builder::{self, Builder};
 use inkwell::context::Context;
+use inkwell::execution_engine::ExecutionEngine;
 use inkwell::llvm_sys::{LLVMModule, LLVMValue};
 use inkwell::module::{Linkage, Module};
+use inkwell::targets::{Target, TargetMachine, RelocMode, CodeModel};
 use inkwell::types::BasicMetadataTypeEnum;
-use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FloatValue};
+use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FloatValue, FunctionValue};
 use inkwell::OptimizationLevel;
+use inkwell::passes::{PassBuilderOptions, PassManager, PassManagerSubType};
 use thiserror::Error;
 
 use crate::frontend::ast::{
@@ -42,6 +45,9 @@ pub struct LLVMContext<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
+    machine: TargetMachine,
+    // fn_pass_manager: PassManager<FunctionValue<'ctx>>,
+    // exec_engine: ExecutionEngine<'ctx>,
     sym_table: RefCell<HashMap<String, AnyValueEnum<'ctx>>>,
 }
 
@@ -50,16 +56,59 @@ impl<'ctx> LLVMContext<'ctx> {
         let builder = context.create_builder();
         let module = context.create_module("kaleidrs_module");
 
+        let triple = TargetMachine::get_default_triple();
+        let target = Target::from_triple(&triple).unwrap();
+        let machine = target
+            .create_target_machine(
+                &triple, 
+                "generic", 
+                "", 
+                OptimizationLevel::None, 
+                RelocMode::Default, 
+                CodeModel::Default
+            )
+            .unwrap();
+
+        // let exec_engine = module.create_execution_engine()
+        //     .expect("FATAL: Failed to create LLVM execution engine for JIT!");
+
+        // module.set_data_layout(
+        //     &exec_engine.get_target_data().get_data_layout()
+        // );
+
         Self {
             context,
             builder,
             module,
+            machine,
+            // exec_engine,
             sym_table: RefCell::new(HashMap::new()),
         }
     }
 
-    pub fn dump(&self) {
+    pub fn dump_module(&self) {
         self.module.print_to_stderr();
+    }
+
+    pub fn run_passes(&self) {
+        let pass_options = PassBuilderOptions::create();
+        pass_options.set_verify_each(true);
+        pass_options.set_debug_logging(true);
+        pass_options.set_loop_interleaving(true);
+        pass_options.set_loop_vectorization(true);
+        pass_options.set_loop_slp_vectorization(true);
+        pass_options.set_loop_unrolling(true);
+        pass_options.set_forget_all_scev_in_loop_unroll(true);
+        pass_options.set_licm_mssa_opt_cap(1);
+        pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
+        pass_options.set_call_graph_profile(true);
+        pass_options.set_merge_functions(true);
+
+        self.module.run_passes(
+            "instcombine,reassociate,gvn,simplifycfg", 
+            &self.machine, 
+            pass_options
+        ).unwrap();
     }
 }
 
@@ -142,7 +191,7 @@ impl LLVMCodeGen for CallExpr {
             .builder
             .build_call(function, llvm_val_args.as_slice(), &"calltmp")
             .expect("Irrecoverable: LLVM failed to build call expression");
-        
+
         Ok(call.as_any_value_enum())
     }
 }
@@ -210,6 +259,8 @@ impl LLVMCodeGen for Function {
             if !fn_val.verify(true) {
                 return Err(BackendError::FailedToVerifyFunc(self.proto.name.clone()))
             }
+
+            // context.fn_pass_manager.run_on(&fn_val);
         }
 
         Ok(fn_val.as_any_value_enum())
