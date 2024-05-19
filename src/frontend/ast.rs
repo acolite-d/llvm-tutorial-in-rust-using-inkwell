@@ -7,7 +7,7 @@ use crate::backend::llvm_backend::LLVMCodeGen;
 use crate::frontend::lexer::Ops;
 
 #[dyn_partial_eq]
-pub trait AST: Any + Debug + LLVMCodeGen + 'static {}
+pub trait AST: Debug + LLVMCodeGen {}
 
 #[derive(Debug, DynPartialEq, PartialEq)]
 pub struct NumberExpr(pub f64);
@@ -44,27 +44,14 @@ pub struct Prototype {
     pub args: Vec<String>,
 }
 
-impl AST for Prototype {}
-
 #[derive(Debug, DynPartialEq, PartialEq)]
 pub struct Function {
     pub proto: Box<Prototype>,
     pub body: Box<dyn AST>,
 }
 
-impl AST for Function {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Rule {
-    Expr,
-    TopLevelExpr,
-    Function,
-    Extern,
-    Program,
-}
-
 // pub trait Parse<'src, R>
 //     where R: FnMut(Rule) -> ParseResult<'src>
 // {
-//     fn parse_into_ast(&self, rule: R) -> ParseResult<'src>;
+//     fn parse_into_AST(&self, rule: R) -> ParseResult<'src>;
 // }

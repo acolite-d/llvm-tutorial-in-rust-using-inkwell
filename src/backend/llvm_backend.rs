@@ -142,6 +142,7 @@ impl LLVMCodeGen for CallExpr {
             .builder
             .build_call(function, llvm_val_args.as_slice(), &"calltmp")
             .expect("Irrecoverable: LLVM failed to build call expression");
+        
         Ok(call.as_any_value_enum())
     }
 }

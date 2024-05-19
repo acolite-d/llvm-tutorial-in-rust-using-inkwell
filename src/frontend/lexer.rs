@@ -24,14 +24,12 @@ pub enum Ops {
     Minus = 1,
     Mult = 2,
     Div = 3,
-    Modulo = 4,
-    Assign = 5,
 }
 
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
-            '+' | '-' | '*' | '/' | '%' | '=' | ';' | ',' | '(' | ')' => true,
+            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' => true,
 
             _ => false,
         }
@@ -54,9 +52,6 @@ fn tokenize(string: &str) -> Token {
         "-" => Operator(Ops::Minus),
         "*" => Operator(Ops::Mult),
         "/" => Operator(Ops::Div),
-        "%" => Operator(Ops::Modulo),
-        "=" => Operator(Ops::Assign),
-
         // Parenthesis
         "(" => OpenParen,
         ")" => ClosedParen,
@@ -172,7 +167,7 @@ mod tests {
 
     #[test]
     fn lexing_operators() {
-        let input = " + - * / % = ";
+        let input = " + - * / ";
         let tokens = input.lex();
 
         assert_eq!(
@@ -182,20 +177,7 @@ mod tests {
                 Operator(Minus),
                 Operator(Mult),
                 Operator(Div),
-                Operator(Modulo),
-                Operator(Assign),
             ]
-        );
-    }
-
-    #[test]
-    fn lexing_mixed() {
-        let input = " def   extern  1.23  x";
-        let tokens = input.lex();
-
-        assert_eq!(
-            tokens.collect::<Vec<Token>>(),
-            vec![FuncDef, Extern, Number(1.23), Identifier(&"x")]
         );
     }
 

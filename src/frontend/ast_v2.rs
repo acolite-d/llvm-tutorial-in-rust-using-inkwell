@@ -1,39 +1,33 @@
-use lexer::{Token, Ops};
+use crate::frontend::lexer::Ops;
 
-pub enum NodeExpr<'input> {
-    Expr,
-    UnaryExpr(),
+// Enum dispatch instead? No trait needed
+// less indirection with Vtables, faster
+// Prevent myself from copying source with
+// owned String's and use references, reassociate lifetime.
+pub enum ASTExpr<'src> {
+    NumberExpr(pub f64),
+    VariableExpr(pub &'src str),
     BinaryExpr {
-        op: Ops,
-        lhs: Box<NodeExpr<'input>>,
-        rhs: Box<NodeExpr<'input>>,
+        pub op: Ops,
+        pub left: Box<ASTExpr<'src>>,
+        pub right: Box<ASTExpr<'src>>,
     },
     CallExpr {
-        callee: &'input str,
-        args: Vec<NodeExpr<'input>>
-    }
+        pub name: &'src str,
+        pub args: Vec<Box<ASTExpr<'src>>>,
+    },
 }
 
+// Prototype
+#[derive(Debug, PartialEq)]
+pub struct Prototype<'src> {
+    pub name: &'src str,
+    pub args: Vec<&'src str>,
+}
 
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-
-    macro_rules! tree {
-        () => {}
-    }
-
-
-    #[test]
-    fn expressions() {}
-
-    #[test]
-    fn unary_expressions() {}
-
-    #[test]
-    fn binary_expressions() {}
-
-
+// Function
+#[derive(Debug, PartialEq)]
+pub struct Function<'src> {
+    pub proto: Box<Prototype>,
+    pub body: Box<ASTExpr<'src>>,
 }
