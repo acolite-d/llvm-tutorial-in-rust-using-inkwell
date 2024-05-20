@@ -132,8 +132,11 @@ pub fn llvm_ir_gen_driver() {
                             sesh_ctx.dump_module();
                             
                             unsafe {
-                                let jitted_function = sesh_ctx.jit_compile_eval().expect("Failed to JIT function!");
-                                println!("Jit compiled and evaluated to: {}", jitted_function.call());
+                                let res = sesh_ctx.jit_eval()
+                                    .expect("Failed to JIT top level pression into function!");
+
+                                println!("Jit compiled and evaluated to: {res}");
+
                                 ir.into_function_value().delete(); 
                             }
                         }

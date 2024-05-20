@@ -51,7 +51,6 @@ pub struct LLVMContext<'ctx> {
     module: Module<'ctx>,
     target: Target,
     machine: TargetMachine,
-    exec_engine: ExecutionEngine<'ctx>,
     sym_table: RefCell<HashMap<String, AnyValueEnum<'ctx>>>,
 }
 
@@ -74,22 +73,12 @@ impl<'ctx> LLVMContext<'ctx> {
             )
             .unwrap();
 
-        let exec_engine = module.create_jit_execution_engine(OptimizationLevel::None)
-            .expect("FATAL: Failed to create LLVM execution engine for JIT!");
-
-        exec_engine.add_module(&module);
-
-        module.set_data_layout(
-            &exec_engine.get_target_data().get_data_layout()
-        );
-
         Self {
             context,
             builder,
             module,
             target,
             machine,
-            exec_engine,
             sym_table: RefCell::new(HashMap::new()),
         }
     }
@@ -119,12 +108,19 @@ impl<'ctx> LLVMContext<'ctx> {
         ).unwrap();
     }
 
-    pub unsafe fn jit_compile(&self) -> Result<JitFunction<TopLevelSignature>, BackendError> {
-        println!("JIT enabled: {}", self.target.has_jit());
-        let top_level_fn: JitFunction<'ctx, TopLevelSignature> = 
-            self.exec_engine.get_function(&"__anonymous_expr").unwrap();
+    pub unsafe fn jit_eval(&self) -> Result<f64, BackendError> {
 
-        Ok(top_level_fn)
+        let exec_engine = self.module.create_jit_execution_engine(OptimizationLevel::None)
+            .expect("FATAL: Failed to create JIT execution engine!");
+
+        let jitted_fn: JitFunction<'ctx, TopLevelSignature> = exec_engine.get_function("__anonymous_expr")
+            .expect("FATAL: symbol '__anonymous_expr' not present in module!");
+
+        let res = jitted_fn.call();
+
+        exec_engine.remove_module(&self.module);
+
+        Ok(res)
     }
 
     
