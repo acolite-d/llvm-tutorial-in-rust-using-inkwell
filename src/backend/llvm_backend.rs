@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use inkwell::builder::{self, Builder};
 use inkwell::context::Context;
-use inkwell::execution_engine::ExecutionEngine;
+use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 use inkwell::llvm_sys::{LLVMModule, LLVMValue};
 use inkwell::module::{Linkage, Module};
 use inkwell::targets::{Target, TargetMachine, RelocMode, CodeModel};
@@ -21,6 +21,7 @@ use crate::frontend::ast::{
 use crate::frontend::lexer::Ops;
 
 type IRGenResult<'ir> = Result<AnyValueEnum<'ir>, BackendError>;
+type TopLevelSignature = unsafe extern "C" fn() -> f64;
 
 #[derive(Error, PartialEq, Debug)]
 pub enum BackendError {
@@ -38,6 +39,9 @@ pub enum BackendError {
 
     #[error("LLVM failed to verify function {0}")]
     FailedToVerifyFunc(String),
+
+    #[error("Failed to JIT top level function expression!")]
+    FailedToJIT,
 }
 
 #[derive(Debug)]
@@ -45,9 +49,9 @@ pub struct LLVMContext<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
+    target: Target,
     machine: TargetMachine,
-    // fn_pass_manager: PassManager<FunctionValue<'ctx>>,
-    // exec_engine: ExecutionEngine<'ctx>,
+    exec_engine: ExecutionEngine<'ctx>,
     sym_table: RefCell<HashMap<String, AnyValueEnum<'ctx>>>,
 }
 
@@ -58,6 +62,7 @@ impl<'ctx> LLVMContext<'ctx> {
 
         let triple = TargetMachine::get_default_triple();
         let target = Target::from_triple(&triple).unwrap();
+
         let machine = target
             .create_target_machine(
                 &triple, 
@@ -69,19 +74,22 @@ impl<'ctx> LLVMContext<'ctx> {
             )
             .unwrap();
 
-        // let exec_engine = module.create_execution_engine()
-        //     .expect("FATAL: Failed to create LLVM execution engine for JIT!");
+        let exec_engine = module.create_jit_execution_engine(OptimizationLevel::None)
+            .expect("FATAL: Failed to create LLVM execution engine for JIT!");
 
-        // module.set_data_layout(
-        //     &exec_engine.get_target_data().get_data_layout()
-        // );
+        exec_engine.add_module(&module);
+
+        module.set_data_layout(
+            &exec_engine.get_target_data().get_data_layout()
+        );
 
         Self {
             context,
             builder,
             module,
+            target,
             machine,
-            // exec_engine,
+            exec_engine,
             sym_table: RefCell::new(HashMap::new()),
         }
     }
@@ -110,6 +118,16 @@ impl<'ctx> LLVMContext<'ctx> {
             pass_options
         ).unwrap();
     }
+
+    pub unsafe fn jit_compile(&self) -> Result<JitFunction<TopLevelSignature>, BackendError> {
+        println!("JIT enabled: {}", self.target.has_jit());
+        let top_level_fn: JitFunction<'ctx, TopLevelSignature> = 
+            self.exec_engine.get_function(&"__anonymous_expr").unwrap();
+
+        Ok(top_level_fn)
+    }
+
+    
 }
 
 pub trait LLVMCodeGen {
@@ -259,8 +277,6 @@ impl LLVMCodeGen for Function {
             if !fn_val.verify(true) {
                 return Err(BackendError::FailedToVerifyFunc(self.proto.name.clone()))
             }
-
-            // context.fn_pass_manager.run_on(&fn_val);
         }
 
         Ok(fn_val.as_any_value_enum())

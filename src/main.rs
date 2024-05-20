@@ -16,7 +16,7 @@ fn main() {
     targets::Target::initialize_native(&target_config)
         .expect("Failed to initialize native machine target!");
 
-    
+    targets::Target::initialize_all(&target_config);
 
     llvm_ir_gen_driver();
     // ast_parser_driver();

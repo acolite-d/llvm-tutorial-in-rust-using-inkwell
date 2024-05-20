@@ -130,7 +130,12 @@ pub fn llvm_ir_gen_driver() {
                         Ok(ir) => { 
                             sesh_ctx.run_passes();
                             sesh_ctx.dump_module();
-                            unsafe { ir.into_function_value().delete(); }
+                            
+                            unsafe {
+                                let jitted_function = sesh_ctx.jit_compile_eval().expect("Failed to JIT function!");
+                                println!("Jit compiled and evaluated to: {}", jitted_function.call());
+                                ir.into_function_value().delete(); 
+                            }
                         }
                         Err(e) => eprintln!("Backend error: {}", e)
                     }
