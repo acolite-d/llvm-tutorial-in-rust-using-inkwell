@@ -93,7 +93,7 @@ pub fn llvm_ir_gen_driver() {
                     println!("Parsed a function definition.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(ir) => {
-                            sesh_ctx.run_passes();
+                            // sesh_ctx.run_passes();
                             sesh_ctx.dump_module();
                         },
                         Err(e) => eprintln!("Backend error: {}", e)
@@ -128,20 +128,23 @@ pub fn llvm_ir_gen_driver() {
                     println!("Parsed a top level expression.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(ir) => { 
-                            sesh_ctx.run_passes();
+                            // sesh_ctx.run_passes();
                             sesh_ctx.dump_module();
                             
-                            unsafe {
-                                let res = sesh_ctx.jit_eval()
-                                    .expect("Failed to JIT top level pression into function!");
+                            
+                            // unsafe {
+                            //     let res = sesh_ctx.jit_eval()
+                            //         .expect("Failed to JIT top level pression into function!");
 
-                                println!("Jit compiled and evaluated to: {res}");
+                            //     println!("Jit compiled and evaluated to: {res}");
 
-                                ir.into_function_value().delete(); 
-                            }
+                                // ir.into_function_value().delete(); 
+                            // }
                         }
-                        Err(e) => eprintln!("Backend error: {}", e)
+                        Err(e) => eprintln!("Backend error: {}", e),
                     }
+
+                    sesh_ctx.delete_top_level_expr();
                 }
                 Err(err) => {
                     eprintln!("Frontend Error: {}", err);

@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
-use std::sync::Mutex;
 
 use inkwell::builder::{self, Builder};
 use inkwell::context::Context;
@@ -85,6 +84,10 @@ impl<'ctx> LLVMContext<'ctx> {
 
     pub fn dump_module(&self) {
         self.module.print_to_stderr();
+    }
+
+    pub fn delete_top_level_expr(&self) {
+        unsafe { self.module.get_function("__anonymous_expr").map(|f| f.delete()) };
     }
 
     pub fn run_passes(&self) {
@@ -265,14 +268,14 @@ impl LLVMCodeGen for Function {
                 .insert(owned_str, arg.as_any_value_enum());
         }
 
-        if let Ok(body) = self.body.codegen(context) {
-            context
-                .builder
-                .build_return(Some(&body.into_float_value() as &dyn BasicValue));
+        let ir_body = self.body.codegen(context)?;
 
-            if !fn_val.verify(true) {
-                return Err(BackendError::FailedToVerifyFunc(self.proto.name.clone()))
-            }
+        context
+            .builder
+            .build_return(Some(&ir_body.into_float_value() as &dyn BasicValue));
+
+        if !fn_val.verify(true) {
+            return Err(BackendError::FailedToVerifyFunc(self.proto.name.clone()))
         }
 
         Ok(fn_val.as_any_value_enum())

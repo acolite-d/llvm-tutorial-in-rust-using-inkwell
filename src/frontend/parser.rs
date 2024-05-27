@@ -115,7 +115,9 @@ fn parse_primary<'src>(
     }
 }
 
-fn parse_number_expr<'src>(tokens: &mut impl Iterator<Item = Token<'src>>) -> ParseResult<'src> {
+fn parse_number_expr<'src>(
+    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>
+) -> ParseResult<'src> {
     if let Some(Token::Number(num)) = tokens.next() {
         Ok(Box::new(NumberExpr(num)))
     } else {
@@ -210,7 +212,7 @@ fn parse_binop_rhs<'src>(
         }
 
         let Some(next_tok @ Token::Operator(op)) = tokens.next() else {
-            panic!("Should be operator here!")
+            panic!("FATAL: misuse of of this function in recursive descent!")
         };
 
         let mut rhs = parse_primary(tokens)?;
