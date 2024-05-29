@@ -11,6 +11,7 @@ In order to build you will need the following:
 
 - Rust Compiler and toolchain, please use https://rustup.rs/ if not already installed.
 - LLVM, either built from source or installed via package manager. Code has been tested with version 17.0.6, but inkwell can support anywhere from version 4-18 at the moment. For users with a system with apt, I recommend using https://apt.llvm.org/, otherwise, follow directions here for building LLVM https://llvm.org/docs/UserGuides.html
+- (More to come soon)
 
 **Be sure the installation of LLVM is locatable within your PATH.**
 
