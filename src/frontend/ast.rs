@@ -1,57 +1,35 @@
-use std::fmt::Debug;
-use std::any::Any;
-
-use dyn_partial_eq::*;
-
-use crate::backend::llvm_backend::LLVMCodeGen;
 use crate::frontend::lexer::Ops;
 
-#[dyn_partial_eq]
-pub trait AST: Debug + LLVMCodeGen {}
 
-#[derive(Debug, DynPartialEq, PartialEq)]
-pub struct NumberExpr(pub f64);
-
-impl AST for NumberExpr {}
-
-#[derive(Debug, DynPartialEq, PartialEq)]
-pub struct VariableExpr {
-    pub name: String,
+// Enum dispatch instead? No trait needed
+// less indirection with Vtables, faster
+// Prevent myself from copying source with
+// owned String's and use references, reassociate lifetime.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ASTExpr<'src> {
+    NumberExpr(f64),
+    VariableExpr(&'src str),
+    BinaryExpr {
+        op: Ops,
+        left: Box<ASTExpr<'src>>,
+        right: Box<ASTExpr<'src>>,
+    },
+    CallExpr {
+        callee: &'src str,
+        args: Vec<Box<ASTExpr<'src>>>,
+    },
 }
 
-impl AST for VariableExpr {}
-
-#[derive(Debug, DynPartialEq, PartialEq)]
-pub struct BinaryExpr {
-    pub op: Ops,
-    pub left: Box<dyn AST>,
-    pub right: Box<dyn AST>,
+// Prototype
+#[derive(Debug, PartialEq)]
+pub struct Prototype<'src> {
+    pub name: &'src str,
+    pub args: Vec<&'src str>,
 }
 
-impl AST for BinaryExpr {}
-
-#[derive(Debug, DynPartialEq, PartialEq)]
-pub struct CallExpr {
-    pub name: String,
-    pub args: Vec<Box<dyn AST>>,
+// Function
+#[derive(Debug, PartialEq)]
+pub struct Function<'src> {
+    pub proto: Box<Prototype<'src>>,
+    pub body: Box<ASTExpr<'src>>,
 }
-
-impl AST for CallExpr {}
-
-#[derive(Debug, DynPartialEq, PartialEq)]
-pub struct Prototype {
-    pub name: String,
-    pub args: Vec<String>,
-}
-
-#[derive(Debug, DynPartialEq, PartialEq)]
-pub struct Function {
-    pub proto: Box<Prototype>,
-    pub body: Box<dyn AST>,
-}
-
-// pub trait Parse<'src, R>
-//     where R: FnMut(Rule) -> ParseResult<'src>
-// {
-//     fn parse_into_AST(&self, rule: R) -> ParseResult<'src>;
-// }

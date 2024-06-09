@@ -1,43 +1,39 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
 
-use inkwell::builder::{self, Builder};
+use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::execution_engine::{ExecutionEngine, JitFunction};
-use inkwell::llvm_sys::{LLVMModule, LLVMValue};
+use inkwell::execution_engine::JitFunction;
 use inkwell::module::{Linkage, Module};
 use inkwell::targets::{Target, TargetMachine, RelocMode, CodeModel};
 use inkwell::types::BasicMetadataTypeEnum;
-use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FloatValue, FunctionValue};
+use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue};
 use inkwell::OptimizationLevel;
-use inkwell::passes::{PassBuilderOptions, PassManager, PassManagerSubType};
+use inkwell::passes::PassBuilderOptions;
 use thiserror::Error;
 
-use crate::frontend::ast::{
-    BinaryExpr, CallExpr, Function, NumberExpr, Prototype, VariableExpr, AST,
-};
+use crate::frontend::ast::{ASTExpr, Prototype, Function};
 use crate::frontend::lexer::Ops;
 
-type IRGenResult<'ir> = Result<AnyValueEnum<'ir>, BackendError>;
+type IRGenResult<'ir, 'src> = Result<AnyValueEnum<'ir>, BackendError<'src>>;
 type TopLevelSignature = unsafe extern "C" fn() -> f64;
 
 #[derive(Error, PartialEq, Debug)]
-pub enum BackendError {
+pub enum BackendError<'src> {
     #[error("Unknown variable name {0}")]
-    UnknownVariable(String),
+    UnknownVariable(&'src str),
 
     #[error("Undefined function {0}")]
-    UndefinedFunction(String),
+    UndefinedFunction(&'src str),
 
     #[error("Function {0} defined twice")]
-    MultipleFunctionDefs(String),
+    MultipleFunctionDefs(&'src str),
 
     #[error("Incorrect number of arguments passed to {func_name}, expected {param_cnt}")]
-    IncorrectNumberOfArgs { func_name: String, param_cnt: u32 },
+    IncorrectNumberOfArgs { func_name: &'src str, param_cnt: u32 },
 
     #[error("LLVM failed to verify function {0}")]
-    FailedToVerifyFunc(String),
+    FailedToVerifyFunc(&'src str),
 
     #[error("Failed to JIT top level function expression!")]
     FailedToJIT,
@@ -121,100 +117,114 @@ impl<'ctx> LLVMContext<'ctx> {
 
         let res = jitted_fn.call();
 
-        exec_engine.remove_module(&self.module);
+        exec_engine.remove_module(&self.module).unwrap();
 
         Ok(res)
     }
-
-    
 }
 
-pub trait LLVMCodeGen {
-    fn codegen<'ctx: 'ir, 'ir>(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir>;
+pub trait LLVMCodeGen<'ctx, 'ir, 'src>
+where
+    'ctx: 'ir 
+{
+    fn codegen(
+        &self, context: &LLVMContext<'ctx>
+    ) -> IRGenResult<'ir, 'src>;
 }
 
-impl LLVMCodeGen for NumberExpr {
-    fn codegen<'ctx: 'ir, 'ir>(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir> {
-        let float_type = context.context.f64_type();
-        Ok(float_type.const_float(self.0).as_any_value_enum())
-    }
-}
+impl<'ctx, 'ir, 'src> LLVMCodeGen<'ctx, 'ir, 'src> for ASTExpr<'src>
+where
+    'ctx: 'ir 
+{
+    fn codegen(
+        &self, context: &LLVMContext<'ctx>
+    ) -> IRGenResult<'ir, 'src> {
+        use ASTExpr::*;
 
-impl LLVMCodeGen for VariableExpr {
-    fn codegen<'ctx: 'ir, 'ir>(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir> {
-        if let Some(llvm_val) = context.sym_table.borrow().get(&self.name) {
-            Ok(*llvm_val)
-        } else {
-            Err(BackendError::UnknownVariable(self.name.clone()))
+        match self {
+            NumberExpr(num) => {
+                let float_type = context.context.f64_type();
+                Ok(float_type.const_float(*num).as_any_value_enum())
+            },
+
+            VariableExpr(varname) => {
+                if let Some(llvm_val) = context.sym_table.borrow().get(*varname) {
+                    Ok(*llvm_val)
+                } else {
+                    Err(BackendError::UnknownVariable(varname))
+                }
+            },
+
+            BinaryExpr { op, left, right } => {
+                let left_genval = left
+                    .codegen(context)
+                    .map(AnyValueEnum::into_float_value)?;
+
+                let right_genval = right
+                    .codegen(context)
+                    .map(AnyValueEnum::into_float_value)?;
+        
+                let float_res = match *op {
+                    Ops::Plus => context.builder.build_float_add(
+                        left_genval, right_genval, &"addtmp"
+                    ),
+        
+                    Ops::Minus => context.builder.build_float_sub(
+                        left_genval, right_genval, &"subtmp"
+                    ),
+        
+                    Ops::Mult => context.builder.build_float_mul(
+                        left_genval, right_genval, &"multmp"
+                    ),
+        
+                    Ops::Div => context.builder.build_float_div(
+                        left_genval, right_genval, &"divtmp"
+                    ),
+                };
+        
+                Ok(float_res.expect("Irrecoverable: LLVM failed to generate insn").as_any_value_enum())
+            },
+
+            CallExpr { ref callee, args } => {
+                let function = context
+                    .module
+                    .get_function(callee)
+                    .ok_or(BackendError::UndefinedFunction(callee))?;
+        
+                let param_cnt = function.count_params();
+        
+                if param_cnt != args.len() as u32 {
+                    return Err(BackendError::IncorrectNumberOfArgs {
+                        func_name: callee,
+                        param_cnt,
+                    });
+                }
+        
+                let llvm_val_args = args.iter()
+                    .map(|arg| arg.codegen(context))
+                    .collect::<Result<Vec<_>, BackendError>>()?;
+        
+                let llvm_val_args: Vec<BasicMetadataValueEnum> = llvm_val_args
+                    .into_iter()
+                    .map(|val| BasicMetadataValueEnum::FloatValue(val.into_float_value()))
+                    .collect();
+        
+                let call = context
+                    .builder
+                    .build_call(function, llvm_val_args.as_slice(), &"calltmp")
+                    .expect("Irrecoverable: LLVM failed to build call expression");
+        
+                Ok(call.as_any_value_enum())
+            },
         }
     }
 }
 
-impl LLVMCodeGen for BinaryExpr {
-    fn codegen<'ctx: 'ir, 'ir>(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir> {
-        let left = self
-            .left
-            .codegen(context)
-            .map(AnyValueEnum::into_float_value)?;
-        let right = self
-            .right
-            .codegen(context)
-            .map(AnyValueEnum::into_float_value)?;
-
-        let float_res = match self.op {
-            Ops::Plus => context.builder.build_float_add(left, right, &"addtmp"),
-
-            Ops::Minus => context.builder.build_float_sub(left, right, &"subtmp"),
-
-            Ops::Mult => context.builder.build_float_mul(left, right, &"multmp"),
-
-            Ops::Div => context.builder.build_float_div(left, right, &"divtmp"),
-
-            _ => panic!(),
-        };
-
-        Ok(float_res.expect("Irrecoverable: LLVM failed to generate insn").as_any_value_enum())
-    }
-}
-
-impl LLVMCodeGen for CallExpr {
-    fn codegen<'ctx: 'ir, 'ir>(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir> {
-        let function = context
-            .module
-            .get_function(&self.name)
-            .ok_or(BackendError::UndefinedFunction(self.name.clone()))?;
-
-        let param_cnt = function.count_params();
-
-        if param_cnt != self.args.len() as u32 {
-            return Err(BackendError::IncorrectNumberOfArgs {
-                func_name: self.name.clone(),
-                param_cnt,
-            });
-        }
-
-        let llvm_val_args = self
-            .args
-            .iter()
-            .map(|arg| arg.codegen(context))
-            .collect::<Result<Vec<_>, BackendError>>()?;
-
-        let llvm_val_args: Vec<BasicMetadataValueEnum> = llvm_val_args
-            .into_iter()
-            .map(|val| BasicMetadataValueEnum::FloatValue(val.into_float_value()))
-            .collect();
-
-        let call = context
-            .builder
-            .build_call(function, llvm_val_args.as_slice(), &"calltmp")
-            .expect("Irrecoverable: LLVM failed to build call expression");
-
-        Ok(call.as_any_value_enum())
-    }
-}
-
-impl LLVMCodeGen for Prototype {
-    fn codegen<'ctx: 'ir, 'ir>(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir> {
+impl<'ctx, 'ir, 'src> LLVMCodeGen<'ctx, 'ir, 'src> for Prototype<'src>
+where
+    'ctx: 'ir 
+{
+    fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
         let param_types =
             vec![BasicMetadataTypeEnum::FloatType(context.context.f64_type()); self.args.len()];
 
@@ -237,8 +247,11 @@ impl LLVMCodeGen for Prototype {
     }
 }
 
-impl LLVMCodeGen for Function {
-    fn codegen<'ctx: 'ir, 'ir>(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir> {
+impl<'ctx, 'ir, 'src> LLVMCodeGen<'ctx, 'ir, 'src> for Function<'src>
+where
+    'ctx: 'ir  
+{
+    fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
 
         let fn_val = match context.module.get_function(&self.proto.name) {
             Some(fn_val) => fn_val,
@@ -246,7 +259,7 @@ impl LLVMCodeGen for Function {
         };
 
         if fn_val.get_first_basic_block().is_some() {
-            return Err(BackendError::MultipleFunctionDefs(self.proto.name.clone()));
+            return Err(BackendError::MultipleFunctionDefs(self.proto.name));
         }
 
         let bb_entry = context.context.append_basic_block(fn_val, "entry");
@@ -272,10 +285,11 @@ impl LLVMCodeGen for Function {
 
         context
             .builder
-            .build_return(Some(&ir_body.into_float_value() as &dyn BasicValue));
+            .build_return(Some(&ir_body.into_float_value() as &dyn BasicValue))
+            .expect("FATAL: LLVM failed to build a return!");
 
         if !fn_val.verify(true) {
-            return Err(BackendError::FailedToVerifyFunc(self.proto.name.clone()))
+            return Err(BackendError::FailedToVerifyFunc(self.proto.name))
         }
 
         Ok(fn_val.as_any_value_enum())

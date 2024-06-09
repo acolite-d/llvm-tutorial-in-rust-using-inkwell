@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [lints.rust]
-unused = "allow"
-dead_code = "allow"
 
 [dependencies]
 inkwell = { version = "0.4.0", features = ["llvm17-0-force-static"] }
