@@ -4,6 +4,7 @@ Original tutorial found here https://llvm.org/docs/tutorial/#kaleidoscope-implem
 The code is material for these blog posts:
 - [Lexer/Parser](https://find.thedoorman.xyz/building-your-own-programming-language-learning-about-compiler-design-llvm-with-a-rust-rewrite-of-the-official-llvm-tutorial-part-1-lexer-parser/)
 - [IR Generation](https://find.thedoorman.xyz/building-your-own-programming-language-learning-about-compiler-design-llvm-with-a-rust-rewrite-of-the-official-llvm-tutorial-part-2-ir-generation/)
+- (More to come soon)
 
 ## Building
 

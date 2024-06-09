@@ -1,4 +1,4 @@
-use crate::frontend::lexer::Ops;
+use crate::{backend::llvm_backend::LLVMCodeGen, frontend::lexer::Ops};
 
 // Enum dispatch instead? No trait needed
 // less indirection with Vtables, faster
@@ -18,6 +18,8 @@ pub enum ASTExpr<'src> {
         args: Vec<Box<ASTExpr<'src>>>,
     },
 }
+
+pub trait AST: Debug + LLVMCodeGen {}
 
 // Prototype
 #[derive(Debug, PartialEq)]
