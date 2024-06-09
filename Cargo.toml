@@ -10,7 +10,5 @@ dead_code = "allow"
 [dependencies]
 inkwell = { version = "0.4.0", features = ["llvm17-0-force-static"] }
 dyn_partial_eq = "0.1.2"
-itertools = "0.12.1"
 lazy_static = "1.4.0"
 thiserror = "1.0.59"
-once_cell = "1.19.0"

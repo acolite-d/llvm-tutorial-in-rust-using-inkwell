@@ -4,17 +4,18 @@ use crate::frontend::lexer::Ops;
 // less indirection with Vtables, faster
 // Prevent myself from copying source with
 // owned String's and use references, reassociate lifetime.
+#[derive(Debug, Clone, PartialEq)]
 pub enum ASTExpr<'src> {
-    NumberExpr(pub f64),
-    VariableExpr(pub &'src str),
+    NumberExpr(f64),
+    VariableExpr(&'src str),
     BinaryExpr {
-        pub op: Ops,
-        pub left: Box<ASTExpr<'src>>,
-        pub right: Box<ASTExpr<'src>>,
+        op: Ops,
+        left: Box<ASTExpr<'src>>,
+        right: Box<ASTExpr<'src>>,
     },
     CallExpr {
-        pub name: &'src str,
-        pub args: Vec<Box<ASTExpr<'src>>>,
+        name: &'src str,
+        args: Vec<Box<ASTExpr<'src>>>,
     },
 }
 
@@ -28,6 +29,6 @@ pub struct Prototype<'src> {
 // Function
 #[derive(Debug, PartialEq)]
 pub struct Function<'src> {
-    pub proto: Box<Prototype>,
+    pub proto: Box<Prototype<'src>>,
     pub body: Box<ASTExpr<'src>>,
 }

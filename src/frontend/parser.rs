@@ -7,7 +7,8 @@ use std::any::Any;
 use thiserror::Error;
 
 use crate::frontend::{
-    ast::*,
+    // ast::*,
+    ast_v2::*,
     lexer::{Lex, Ops, Token, Tokens},
 };
 
@@ -34,20 +35,18 @@ pub enum ParserError<'src> {
     ExpectedToken(Token<'src>),
 }
 
-type ParseResult<'src> = Result<Box<dyn AST>, ParserError<'src>>;
-
 pub fn parse_extern<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> Result<Box<Prototype>, ParserError<'src>> {
+) -> Result<Box<Prototype<'src>>, ParserError<'src>> {
     let _keyword = tokens.next();
     parse_prototype(tokens)
 }
 
 pub fn parse_prototype<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> Result<Box<Prototype>, ParserError<'src>> {
+) -> Result<Box<Prototype<'src>>, ParserError<'src>> {
     let Some(Token::Identifier(name)) = tokens.next() else {
-        return Err(ParserError::ExpectedToken(Token::Identifier(&"")));
+        panic!("Should only call this function when expecting identifier!")
     };
 
     tokens
@@ -58,7 +57,7 @@ pub fn parse_prototype<'src>(
     let mut args = vec![];
 
     while let Some(Token::Identifier(s)) = tokens.peek() {
-        args.push(s.to_string());
+        args.push(*s);
         let _ = tokens.next();
     }
 
@@ -67,15 +66,12 @@ pub fn parse_prototype<'src>(
         .filter(|t| matches!(t, Token::ClosedParen))
         .ok_or(ParserError::ExpectedToken(Token::ClosedParen))?;
 
-    Ok(Box::new(Prototype {
-        name: name.to_string(),
-        args,
-    }))
+    Ok(Box::new(Prototype { name, args }))
 }
 
 pub fn parse_definition<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> Result<Box<Function>, ParserError<'src>> {
+) -> Result<Box<Function<'src>>, ParserError<'src>> {
     // swallow the def keyword
     let _def = tokens.next();
 
@@ -88,20 +84,23 @@ pub fn parse_definition<'src>(
 
 pub fn parse_top_level_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> Result<Box<Function>, ParserError<'src>> {
+) -> Result<Box<Function<'src>>, ParserError<'src>> {
     let expr = parse_expression(tokens)?;
 
     let proto = Box::new(Prototype {
-        name: "__anonymous_expr".to_string(),
+        name: &"__anonymous_expr",
         args: vec![],
     });
 
     Ok(Box::new(Function { proto, body: expr }))
 }
 
+
+type ExprParseResult<'src> = Result<Box<ASTExpr<'src>>, ParserError<'src>>;
+
 fn parse_primary<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> ParseResult<'src> {
+) -> ExprParseResult<'src> {
     match tokens.peek() {
         Some(Token::Identifier(_)) => parse_identifier_expr(tokens),
 
@@ -117,9 +116,9 @@ fn parse_primary<'src>(
 
 fn parse_number_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>
-) -> ParseResult<'src> {
+) -> ExprParseResult<'src> {
     if let Some(Token::Number(num)) = tokens.next() {
-        Ok(Box::new(NumberExpr(num)))
+        Ok(Box::new(ASTExpr::NumberExpr(num)))
     } else {
         panic!("Expected next token to be number for parse_number_expr!")
     }
@@ -127,7 +126,7 @@ fn parse_number_expr<'src>(
 
 fn parse_identifier_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> ParseResult<'src> {
+) -> ExprParseResult<'src> {
     let name = match tokens.next() {
         Some(Token::Identifier(name)) => name,
         _unexpected => panic!("Expected"),
@@ -137,14 +136,14 @@ fn parse_identifier_expr<'src>(
     if let Some(Token::OpenParen) = tokens.peek() {
         let _open_paren = tokens.next();
 
-        let mut arglist = vec![];
+        let mut args = vec![];
 
         loop {
             if let Some(Token::ClosedParen) = tokens.peek() {
                 break;
             }
 
-            parse_expression(tokens).map(|arg_expr| arglist.push(arg_expr))?;
+            parse_expression(tokens).map(|arg_expr| args.push(arg_expr))?;
 
             if let Some(Token::Comma) = tokens.peek() {
                 tokens.next();
@@ -154,21 +153,16 @@ fn parse_identifier_expr<'src>(
 
         let _closed_paren = tokens.next();
 
-        Ok(Box::new(CallExpr {
-            name: name.to_string(),
-            args: arglist,
-        }))
+        Ok(Box::new(ASTExpr::CallExpr { name, args }))
     } else {
         // Variable Expression
-        Ok(Box::new(VariableExpr {
-            name: name.to_string(),
-        }))
+        Ok(Box::new(ASTExpr::VariableExpr(name)))
     }
 }
 
 fn parse_paren_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> ParseResult<'src> {
+) -> ExprParseResult<'src> {
     let _paren = tokens.next();
 
     let expr = parse_expression(tokens);
@@ -182,7 +176,7 @@ fn parse_paren_expr<'src>(
 
 fn parse_expression<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-) -> ParseResult<'src> {
+) -> ExprParseResult<'src> {
     let lhs = parse_primary(tokens)?;
 
     parse_binop_rhs(tokens, lhs, 0)
@@ -198,9 +192,9 @@ fn get_operator_precedence(token: Token) -> i32 {
 
 fn parse_binop_rhs<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
-    mut lhs: Box<dyn AST>,
+    mut lhs: Box<ASTExpr<'src>>,
     expr_prec: i32,
-) -> ParseResult<'src> {
+) -> ExprParseResult<'src> {
     loop {
         let tok_prec = match tokens.peek().copied() {
             Some(token) => get_operator_precedence(token),
@@ -223,7 +217,7 @@ fn parse_binop_rhs<'src>(
             rhs = parse_binop_rhs(tokens, rhs, tok_prec + 1)?;
         }
 
-        lhs = Box::new(BinaryExpr {
+        lhs = Box::new(ASTExpr::BinaryExpr {
             op,
             left: lhs,
             right: rhs,
@@ -244,39 +238,11 @@ mod tests {
     }
 
     // #[test]
-    // fn parsing_primary_expressions() {
-    //     let mut input = " 3.14; ";
-    //     let mut ast = input.parse_into_ast(parse_primary);
+    // fn parsing_primary_expressions() {}
 
-    //     assert_eq!(ast, Ok(ast_node!(NumberExpr::new(3.14))));
+    // #[test]
+    // fn parsing_binorphs() {}
 
-    //     input = " 2 + 3; ";
-    //     ast = input.parse_into_ast(parse_expression);
-
-    //     assert_eq!(
-    //         ast,
-    //         Ok(ast_node!(BinaryExpr::new(
-    //             Ops::Plus,
-    //             ast_node!(NumberExpr::new(2.0)),
-    //             ast_node!(NumberExpr::new(3.0)),
-    //         )))
-    //     );
-
-    //     input = " var1 * var2; ";
-    //     ast = input.parse_into_ast(parse_expression);
-
-    //     assert_eq!(
-    //         ast,
-    //         Ok(ast_node!(BinaryExpr::new(
-    //             Ops::Mult,
-    //             ast_node!(VariableExpr::new("var1".to_string())),
-    //             ast_node!(VariableExpr::new("var2".to_string())),
-    //         )))
-    //     );
-    // }
-
-    #[test]
-    fn parsing_binorphs() {}
-
-    fn parsing_functions() {}
+    // #[test]
+    // fn parsing_functions() {}
 }

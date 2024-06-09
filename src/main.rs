@@ -8,7 +8,7 @@ mod repl;
 use inkwell::targets;
 
 use backend::llvm_backend;
-use repl::{ast_parser_driver, llvm_ir_gen_driver};
+use repl::{ast_parser_driver};
 
 fn main() {
     let target_config = targets::InitializationConfig::default();
@@ -18,6 +18,6 @@ fn main() {
 
     targets::Target::initialize_all(&target_config);
 
-    llvm_ir_gen_driver();
-    // ast_parser_driver();
+    // llvm_ir_gen_driver();
+    ast_parser_driver();
 }

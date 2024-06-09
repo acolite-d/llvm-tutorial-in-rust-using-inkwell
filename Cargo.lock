@@ -65,23 +65,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "kaleidrs"
 version = "0.1.0"
 dependencies = [
  "dyn_partial_eq",
  "inkwell",
- "itertools",
  "lazy_static",
- "once_cell",
  "thiserror",
 ]
 

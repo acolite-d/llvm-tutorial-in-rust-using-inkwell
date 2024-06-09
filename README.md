@@ -164,3 +164,11 @@ entry:
 Jit compiled and evaluated to: 400
 Ready >>
 ```
+
+# TODOs
+1. Refactor AST using enum dispatch method
+2. Add clap make it better at command line
+3. Remove no longer needed crates from manifest
+4. Make errors a bit more better
+5. Comment like hell, and add tests
+6. Remove lints that target unused and dead, clean up whatever it points to.
