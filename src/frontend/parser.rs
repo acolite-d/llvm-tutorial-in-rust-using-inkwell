@@ -5,9 +5,13 @@ use thiserror::Error;
 
 use crate::frontend::{
     ast::*,
-    lexer::{Ops, Token, Tokens},
+    lexer::{Ops, Token},
 };
 
+// One of the few global variables I will use here, where the
+// tutorial uses many. This is just a hash table of operators
+// to their precedence, used in binorph parsing. In the C++
+// tutorial, this variable is called "BinopPrecedence"
 lazy_static! {
     static ref OP_PRECEDENCE: HashMap<Ops, i32> = {
         let mut map = HashMap::new();
@@ -19,6 +23,8 @@ lazy_static! {
     };
 }
 
+// Few errors here to character what went wrong during the
+// parsing process.
 #[derive(Error, PartialEq, Debug)]
 pub enum ParserError<'src> {
     #[error("Unexpected token: {0:?}")]
@@ -31,13 +37,18 @@ pub enum ParserError<'src> {
     ExpectedToken(Token<'src>),
 }
 
+
+/// external ::= 'extern' prototype
 pub fn parse_extern<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> Result<Box<Prototype<'src>>, ParserError<'src>> {
+    // Swallow the 'extern' keyword, parse as prototype
     let _keyword = tokens.next();
     parse_prototype(tokens)
 }
 
+/// prototype
+///   ::= id '(' id* ')'
 pub fn parse_prototype<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> Result<Box<Prototype<'src>>, ParserError<'src>> {
@@ -65,6 +76,7 @@ pub fn parse_prototype<'src>(
     Ok(Box::new(Prototype { name, args }))
 }
 
+/// definition ::= 'def' prototype expression
 pub fn parse_definition<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> Result<Box<Function<'src>>, ParserError<'src>> {
@@ -78,6 +90,7 @@ pub fn parse_definition<'src>(
     Ok(Box::new(Function { proto, body }))
 }
 
+/// toplevelexpr ::= expression
 pub fn parse_top_level_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> Result<Box<Function<'src>>, ParserError<'src>> {
@@ -91,9 +104,13 @@ pub fn parse_top_level_expr<'src>(
     Ok(Box::new(Function { proto, body: expr }))
 }
 
-
+// Small alias for fallible returns of parsing expressions
 type ExprParseResult<'src> = Result<Box<ASTExpr<'src>>, ParserError<'src>>;
 
+/// primary
+///   ::= identifierexpr
+///   ::= numberexpr
+///   ::= parenexpr
 fn parse_primary<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
@@ -110,6 +127,7 @@ fn parse_primary<'src>(
     }
 }
 
+/// numberexpr ::= number
 fn parse_number_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>
 ) -> ExprParseResult<'src> {
@@ -120,6 +138,9 @@ fn parse_number_expr<'src>(
     }
 }
 
+/// identifierexpr
+///   ::= identifier
+///   ::= identifier '(' expression* ')'
 fn parse_identifier_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
@@ -156,13 +177,17 @@ fn parse_identifier_expr<'src>(
     }
 }
 
+/// parenexpr ::= '(' expression ')'
 fn parse_paren_expr<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
+    // Swallow the open parenthesis
     let _paren = tokens.next();
 
+    // Parse the expression inside it
     let expr = parse_expression(tokens);
 
+    // Should be a closed parenthesis following it.
     match tokens.next() {
         Some(Token::ClosedParen) => expr,
         Some(unexpected) => Err(ParserError::UnexpectedToken(unexpected)),
@@ -170,6 +195,9 @@ fn parse_paren_expr<'src>(
     }
 }
 
+/// expression
+///   ::= primary binoprhs
+///
 fn parse_expression<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
@@ -178,7 +206,10 @@ fn parse_expression<'src>(
     parse_binop_rhs(tokens, lhs, 0)
 }
 
-fn get_operator_precedence(token: Token) -> i32 {
+// Small helper method to fetch the precedence of operator
+// from hash table. If the token is not an operator,
+// default to -1. Tutorial names this GetTokPrecedence
+fn get_token_precedence(token: Token) -> i32 {
     if let Token::Operator(operator) = token {
         OP_PRECEDENCE[&operator]
     } else {
@@ -186,6 +217,8 @@ fn get_operator_precedence(token: Token) -> i32 {
     }
 }
 
+/// binoprhs
+///   ::= ('+' primary)*
 fn parse_binop_rhs<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
     mut lhs: Box<ASTExpr<'src>>,
@@ -193,7 +226,7 @@ fn parse_binop_rhs<'src>(
 ) -> ExprParseResult<'src> {
     loop {
         let tok_prec = match tokens.peek().copied() {
-            Some(token) => get_operator_precedence(token),
+            Some(token) => get_token_precedence(token),
             None => return Err(ParserError::UnexpectedEOI),
         };
 
@@ -207,7 +240,7 @@ fn parse_binop_rhs<'src>(
 
         let mut rhs = parse_primary(tokens)?;
 
-        let next_prec = get_operator_precedence(next_tok);
+        let next_prec = get_token_precedence(next_tok);
 
         if tok_prec < next_prec {
             rhs = parse_binop_rhs(tokens, rhs, tok_prec + 1)?;

@@ -10,3 +10,4 @@ inkwell = { version = "0.4.0", features = ["llvm17-0-force-static"] }
 dyn_partial_eq = "0.1.2"
 lazy_static = "1.4.0"
 thiserror = "1.0.59"
+clap = "4.5.6"

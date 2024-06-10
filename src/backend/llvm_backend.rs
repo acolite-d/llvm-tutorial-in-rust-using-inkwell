@@ -18,6 +18,8 @@ use crate::frontend::lexer::Ops;
 type IRGenResult<'ir, 'src> = Result<AnyValueEnum<'ir>, BackendError<'src>>;
 type TopLevelSignature = unsafe extern "C" fn() -> f64;
 
+// Possible errors that might result when generating/JIT'ing
+// LLVM IR
 #[derive(Error, PartialEq, Debug)]
 pub enum BackendError<'src> {
     #[error("Unknown variable name {0}")]
@@ -39,6 +41,8 @@ pub enum BackendError<'src> {
     FailedToJIT,
 }
 
+// Our context object that we will pass to recursive calls of codegen
+// as we generate LLVM IR from our tree.
 #[derive(Debug)]
 pub struct LLVMContext<'ctx> {
     context: &'ctx Context,
@@ -78,14 +82,21 @@ impl<'ctx> LLVMContext<'ctx> {
         }
     }
 
+    // This method will just print the contents of the module,
+    // which will show us what the IR we just generated looks like
+    // within our context.
     pub fn dump_module(&self) {
         self.module.print_to_stderr();
     }
 
+    // Small helper method to remove the top level anonymous expression,
+    // needed for REPL so that we don't define top level twice, just delete
+    // it and then define it again.
     pub fn delete_top_level_expr(&self) {
         unsafe { self.module.get_function("__anonymous_expr").map(|f| f.delete()) };
     }
 
+    // Optimization passes
     pub fn run_passes(&self) {
         let pass_options = PassBuilderOptions::create();
         pass_options.set_verify_each(true);
@@ -107,6 +118,8 @@ impl<'ctx> LLVMContext<'ctx> {
         ).unwrap();
     }
 
+    // JIT evalution, creates an ExecutionEngine object, JIT compiles the function,
+    // then attempts to call the function, will return the resulting floating point val.
     pub unsafe fn jit_eval(&self) -> Result<f64, BackendError> {
 
         let exec_engine = self.module.create_jit_execution_engine(OptimizationLevel::None)
@@ -123,6 +136,7 @@ impl<'ctx> LLVMContext<'ctx> {
     }
 }
 
+// There are three lifetimes at play 
 pub trait LLVMCodeGen<'ctx, 'ir, 'src>
 where
     'ctx: 'ir 

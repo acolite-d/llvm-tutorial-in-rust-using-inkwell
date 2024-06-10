@@ -2,6 +2,15 @@
 use std::io::{BufRead, BufReader};
 use std::str::SplitWhitespace;
 
+
+// Our tokens for the Kaleidoscope language, in the original
+// tutorial, delimiters like commas, parenthesis, semicolons
+// were not in the enum, but where inferred to be understood
+// by the lexing process, and stored in token buffer. They
+// are included in this enum for transparency.
+//
+// Unlike the tutorial, we will also use string references
+// that will live for source, or the "'src" lifetime. 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token<'src> {
@@ -17,6 +26,8 @@ pub enum Token<'src> {
     Unknown(&'src str) = 10,
 }
 
+
+// Operators found here, member field of Token::Operator variant
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Ops {
@@ -26,6 +37,10 @@ pub enum Ops {
     Div = 3,
 }
 
+
+// For strings with no whitespace, need to be able to find out
+// if I should lex the entire string, or break it apart into slices
+// If the string contains multiple single char tokens, we return true.
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
@@ -36,6 +51,8 @@ impl<'src> Token<'src> {
     }
 }
 
+// Taking any given string slice, and producing a token for it,
+// used in Lex trait implementation for str.
 #[inline(always)]
 fn tokenize(string: &str) -> Token {
     use Token::*;
@@ -75,6 +92,14 @@ fn tokenize(string: &str) -> Token {
     }
 }
 
+// Our iterator adapter for producing Kaleidoscope tokens,
+// the only iterator "I" we really use here is SplitWhitespace, but
+// so it is a bit needless to make this generic, but just following
+// typical iterator adapter nature.
+//
+// The iterator I must produce string slices &str, but if it produces
+// a slice with multiple tokens in it, we take the first token from it,
+// then store the latter part of slice in leftover_slice
 #[derive(Debug)]
 pub struct Tokens<'src, I> {
     iter: I,
@@ -88,7 +113,9 @@ where
     type Item = Token<'src>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut slice = self.leftover_slice.take().or_else(|| self.iter.next())?;
+        let mut slice = self.leftover_slice
+            .take()
+            .or_else(|| self.iter.next())?;
 
         if slice.len() > 1 {
             if let Some(pos) = slice.find(Token::is_single_char_token) {
@@ -108,6 +135,11 @@ where
     }
 }
 
+// We can apply this trait to produce the iterator for 
+// Kaleidoscope tokens to foreign type str! Now to lex any
+// source code we can.
+// let source_code = read_source_code();
+// let tokens: Vec<Token> = source_code.lex().collect()
 pub trait Lex {
     fn lex(&self) -> Tokens<SplitWhitespace>;
 }
