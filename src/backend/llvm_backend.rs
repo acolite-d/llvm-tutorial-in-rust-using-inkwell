@@ -136,10 +136,19 @@ impl<'ctx> LLVMContext<'ctx> {
     }
 }
 
-// There are three lifetimes at play 
+// There are three lifetimes at play when working with references from the
+// source code (AST), and the LLVM objects (the context object and IR it produces)
+// The IR is bound by context, as seen below in the where portion of this trait.
+// IR and context are related in that IR can live no longer than the context that
+// creates it.
+//
+// The method codegen will try to generate IR, given a context to work with.
+// This method is called recursively across the AST, from node to node.
+// This method, if successful, will return AnyValueEnum, which enables
+// this method to return a different LLVM value depending on node
 pub trait LLVMCodeGen<'ctx, 'ir, 'src>
 where
-    'ctx: 'ir 
+    'ctx: 'ir // Context and IR have a unique relationship, bounded.
 {
     fn codegen(
         &self, context: &LLVMContext<'ctx>
@@ -155,12 +164,17 @@ where
     ) -> IRGenResult<'ir, 'src> {
         use ASTExpr::*;
 
+        // To generate code for any expression, we must handle the number, variable, call, and
+        // binary expression cases.
         match self {
+            // Number expression case, just grab a number constant from context space
             NumberExpr(num) => {
                 let float_type = context.context.f64_type();
                 Ok(float_type.const_float(*num).as_any_value_enum())
             },
 
+            // To handle variable case, make sure the variable exists in symbol table,
+            // if it doesn't return error, otherwise, fetch the LLVM Value for that variable
             VariableExpr(varname) => {
                 if let Some(llvm_val) = context.sym_table.borrow().get(*varname) {
                     Ok(*llvm_val)
@@ -169,6 +183,8 @@ where
                 }
             },
 
+            // Generate the left and right code first, then build the correct
+            // instruction depending on the operator.
             BinaryExpr { op, left, right } => {
                 let left_genval = left
                     .codegen(context)
@@ -199,7 +215,11 @@ where
                 Ok(float_res.expect("Irrecoverable: LLVM failed to generate insn").as_any_value_enum())
             },
 
+            // This one is the most complex expression to handle...
             CallExpr { ref callee, args } => {
+
+                // First, see if the function is defined in LLVM module, if not, we have 
+                // an undefined function trying to be called
                 let function = context
                     .module
                     .get_function(callee)
@@ -207,13 +227,15 @@ where
         
                 let param_cnt = function.count_params();
         
-                if param_cnt != args.len() as u32 {
+                if param_cnt != args.len() as u32 { // verify parameter counts
                     return Err(BackendError::IncorrectNumberOfArgs {
                         func_name: callee,
                         param_cnt,
                     });
                 }
-        
+                
+                // Generate code for the arguments passed, call site expressions,
+                // Any of the arguments could also produce a backend error, so propogate up
                 let llvm_val_args = args.iter()
                     .map(|arg| arg.codegen(context))
                     .collect::<Result<Vec<_>, BackendError>>()?;
@@ -222,7 +244,9 @@ where
                     .into_iter()
                     .map(|val| BasicMetadataValueEnum::FloatValue(val.into_float_value()))
                     .collect();
-        
+                
+                // Building a call requires arguments be of type BasicMetadataValueEnum,
+                // as a slice of them, had to convert, but does produce LLVM call instruction.
                 let call = context
                     .builder
                     .build_call(function, llvm_val_args.as_slice(), &"calltmp")
@@ -234,6 +258,8 @@ where
     }
 }
 
+// At prototype node, we need to establish arguments (all floats of course)
+// Add the function to module with type as fn(), fn (float) fn(float, float), etc...
 impl<'ctx, 'ir, 'src> LLVMCodeGen<'ctx, 'ir, 'src> for Prototype<'src>
 where
     'ctx: 'ir 
@@ -267,15 +293,21 @@ where
 {
     fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
 
+        // See if function has been defined, if not, generate prototype
+        // to get the LLVM function value.
         let fn_val = match context.module.get_function(&self.proto.name) {
             Some(fn_val) => fn_val,
             None => self.proto.codegen(context)?.into_function_value(),
         };
 
+        // To make sure we aren't defining functions twice, I just check if it
+        // has no entry basic block, if it does, then propogate error.
         if fn_val.get_first_basic_block().is_some() {
             return Err(BackendError::MultipleFunctionDefs(self.proto.name));
         }
 
+        // This sets our cursor for creating instructions to the basic block
+        // for this function
         let bb_entry = context.context.append_basic_block(fn_val, "entry");
         context.builder.position_at_end(bb_entry);
 
@@ -295,15 +327,17 @@ where
                 .insert(owned_str, arg.as_any_value_enum());
         }
 
+        // Generate code for the body of the function as an ASTExpr node
         let ir_body = self.body.codegen(context)?;
 
+        // We need to add a return at the end so we return from functions we call
         context
             .builder
             .build_return(Some(&ir_body.into_float_value() as &dyn BasicValue))
             .expect("FATAL: LLVM failed to build a return!");
 
         if !fn_val.verify(true) {
-            return Err(BackendError::FailedToVerifyFunc(self.proto.name))
+            return Err(BackendError::FailedToVerifyFunc(self.proto.name));
         }
 
         Ok(fn_val.as_any_value_enum())
