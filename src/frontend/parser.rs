@@ -34,7 +34,7 @@ pub enum ParserError<'src> {
     UnexpectedEOI,
 
     #[error("Expected token: {0:?}")]
-    ExpectedToken(Token<'src>),
+    ExpectedToken(&'static str),
 }
 
 
@@ -59,7 +59,7 @@ pub fn parse_prototype<'src>(
     tokens
         .next()
         .filter(|t| matches!(t, Token::OpenParen))
-        .ok_or(ParserError::ExpectedToken(Token::OpenParen))?;
+        .ok_or(ParserError::ExpectedToken(&"("))?;
 
     let mut args = vec![];
 
@@ -71,7 +71,7 @@ pub fn parse_prototype<'src>(
     let _closed_paren = tokens
         .next()
         .filter(|t| matches!(t, Token::ClosedParen))
-        .ok_or(ParserError::ExpectedToken(Token::ClosedParen))?;
+        .ok_or(ParserError::ExpectedToken(&")"))?;
 
     Ok(Box::new(Prototype { name, args }))
 }
@@ -234,13 +234,16 @@ fn parse_binop_rhs<'src>(
             return Ok(lhs);
         }
 
-        let Some(next_tok @ Token::Operator(op)) = tokens.next() else {
+        let Some(Token::Operator(op)) = tokens.next() else {
             panic!("FATAL: misuse of of this function in recursive descent!")
         };
 
         let mut rhs = parse_primary(tokens)?;
 
-        let next_prec = get_token_precedence(next_tok);
+        let next_prec = match tokens.peek().copied() {
+            Some(token) => get_token_precedence(token),
+            None => return Err(ParserError::UnexpectedEOI),
+        };
 
         if tok_prec < next_prec {
             rhs = parse_binop_rhs(tokens, rhs, tok_prec + 1)?;
@@ -256,22 +259,234 @@ fn parse_binop_rhs<'src>(
 
 #[cfg(test)]
 mod tests {
+    use crate::frontend::lexer::Lex;
+
     use super::*;
     use Ops::*;
-    use Token::*;
+    use ASTExpr::*;
 
-    macro_rules! ast_node {
-        ( $node:expr ) => {
-            Box::new($node) as Box<dyn AST>
-        };
+    #[test]
+    fn parsing_primary_expressions() {
+        let mut tokens     = " 23.2 ".lex().peekable();
+        let mut res        = parse_primary(&mut tokens);
+
+        assert_eq!(
+            res,
+            Ok(
+                Box::new(NumberExpr(23.2))
+            )
+        );
+
+        tokens = " myVariable ".lex().peekable();
+        res    = parse_primary(&mut tokens);
+
+        assert_eq!(
+            res,
+            Ok(
+                Box::new(VariableExpr(&"myVariable"))
+            )
+        );
+
+        tokens = " (400.5 - 323.10) ".lex().peekable();
+        res    = parse_primary(&mut tokens);
+
+        assert_eq!(
+            res,
+            Ok(
+                Box::new(BinaryExpr { 
+                    op: Minus, 
+                    left: Box::new(NumberExpr(400.5)), 
+                    right: Box::new(NumberExpr(323.10)),
+                })
+            )
+        );
+
+        tokens = " squareNums(2) ".lex().peekable();
+        res    = parse_primary(&mut tokens);
+
+        assert_eq!(
+            res,
+            Ok(Box::new(CallExpr { 
+                callee: &"squareNums", args: vec![Box::new(NumberExpr(2.0))] 
+            }))
+        );
+
+        tokens = " multiParams(6, x, (2 + 2)) ".lex().peekable();
+        res    = parse_primary(&mut tokens);
+
+        assert_eq!(
+            res,
+            Ok(Box::new(CallExpr { 
+                callee: &"multiParams", 
+                args: vec![
+                    Box::new(NumberExpr(6.0)),
+                    Box::new(VariableExpr(&"x")),
+                    Box::new(BinaryExpr { 
+                        op: Plus, 
+                        left: Box::new(NumberExpr(2.0)), 
+                        right: Box::new(NumberExpr(2.0)), 
+                    })
+                ] 
+            }))
+        );
     }
 
-    // #[test]
-    // fn parsing_primary_expressions() {}
+    #[test]
+    fn binary_expression_precedence() {
 
-    // #[test]
-    // fn parsing_binorphs() {}
+        // Left takes precedence, precedence here should be 
+        // (((1+2)-3)+4)
+        let mut tokens   = " 1 + 2 - 3 + 4;".lex().peekable();
+        let mut expr_ast = parse_expression(&mut tokens);
 
-    // #[test]
-    // fn parsing_functions() {}
+        assert_eq!(
+            expr_ast,
+            Ok(
+                Box::new(
+                    BinaryExpr { 
+                        op: Plus, 
+                        left: Box::new(
+                            BinaryExpr { 
+                                op: Minus, 
+                                left: Box::new(BinaryExpr { 
+                                    op: Plus, 
+                                    left: Box::new(NumberExpr(1.0)), 
+                                    right: Box::new(NumberExpr(2.0)) 
+                                }), 
+                                right: Box::new(NumberExpr(3.0)),
+                            }
+                        ), 
+                        right: Box::new(NumberExpr(4.0)) 
+                    }
+                )
+            )
+        );
+
+        // The last binary expression " y * z " should take precedence,
+        // (x + (y * z)) 
+        tokens   = " x + y * z; ".lex().peekable();
+        expr_ast = parse_expression(&mut tokens);
+
+        assert_eq!(
+            expr_ast,
+            Ok(
+                Box::new(
+                    BinaryExpr { 
+                        op: Plus, 
+                        left: Box::new(VariableExpr(&"x")), 
+                        right: Box::new(BinaryExpr { 
+                            op: Mult, 
+                            left: Box::new(VariableExpr(&"y")), 
+                            right: Box::new(VariableExpr(&"z")),
+                        })
+                    }
+                )
+            )
+        );
+
+        // But parenthesis can be enforce  explicit binary expression
+        // precedence ((x + y) * z)
+
+        tokens   = " (x+y)*z;".lex().peekable();
+        expr_ast = parse_expression(&mut tokens);
+
+        assert_eq!(
+            expr_ast,
+            Ok(
+                Box::new(BinaryExpr { 
+                    op: Mult, 
+                    left: Box::new(
+                        BinaryExpr { 
+                            op: Plus, 
+                            left: Box::new(VariableExpr(&"x")), 
+                            right: Box::new(VariableExpr(&"y")),
+                    }), 
+                    right: Box::new(VariableExpr(&"z"))
+                })
+            )
+        );
+
+        // Here the division expression in middle should take precedence,
+        // ((2 + (10 / 5)) - 3)
+        tokens   = " 2 + 10 / 5 - 3; ".lex().peekable();
+        expr_ast = parse_expression(&mut tokens);
+
+        assert_eq!(
+            expr_ast,
+            Ok(
+                Box::new(BinaryExpr { 
+                    op: Minus, 
+                    left: Box::new(BinaryExpr { 
+                        op: Plus,
+                        left: Box::new(NumberExpr(2.0)),
+                        right: Box::new(BinaryExpr { 
+                            op: Div, 
+                            left: Box::new(NumberExpr(10.0)), 
+                            right: Box::new(NumberExpr(5.0)),
+                        }), 
+                    }),
+                    right: Box::new(NumberExpr(3.0)), 
+                })
+            )
+        );
+    }
+
+    #[test]
+    fn parsing_functions() {
+        let mut tokens   = "def func1(x y) x * y;".lex().peekable();
+        let mut func_ast = parse_definition(&mut tokens);
+
+        assert_eq!(
+            func_ast,
+            Ok(
+                Box::new(Function {
+                    proto: Box::new(Prototype { name: &"func1", args: vec![&"x", &"y"]}),
+                    body: Box::new(
+                        BinaryExpr { 
+                            op: Mult, 
+                            left: Box::new(VariableExpr(&"x")), 
+                            right: Box::new(VariableExpr(&"y")),
+                        },
+                    )
+                })
+            )
+        );
+
+        tokens   = "def alwaysReturnOne ( ) 1;".lex().peekable();
+        func_ast = parse_definition(&mut tokens);
+
+        assert_eq!(
+            func_ast,
+            Ok(
+                Box::new(Function {
+                    proto: Box::new(Prototype { name: &"alwaysReturnOne", args: vec![]}),
+                    body: Box::new(NumberExpr(1.0)),
+                })
+            )
+        );
+
+        tokens   = "def func2 (base mid upper) base*mid + upper;".lex().peekable();
+        func_ast = parse_definition(&mut tokens);
+
+        assert_eq!(
+            func_ast,
+            Ok(
+                Box::new(Function {
+                    proto: Box::new(Prototype { name: &"func2", args: vec![&"base", &"mid", &"upper"]}),
+                    body: Box::new(
+                        BinaryExpr { 
+                            op: Plus, 
+                            left: Box::new(BinaryExpr { 
+                                op: Mult, 
+                                left: Box::new(VariableExpr(&"base")), 
+                                right: Box::new(VariableExpr(&"mid")),
+                            }),
+                            right: Box::new(VariableExpr(&"upper")),
+                        }
+
+                    )
+                })
+            )
+        );
+    }
 }

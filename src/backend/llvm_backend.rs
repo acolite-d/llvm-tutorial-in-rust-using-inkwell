@@ -12,6 +12,7 @@ use inkwell::OptimizationLevel;
 use inkwell::passes::PassBuilderOptions;
 use thiserror::Error;
 
+use crate::cli::OptLevel;
 use crate::frontend::ast::{ASTExpr, Prototype, Function};
 use crate::frontend::lexer::Ops;
 
@@ -54,7 +55,7 @@ pub struct LLVMContext<'ctx> {
 }
 
 impl<'ctx> LLVMContext<'ctx> {
-    pub fn new(context: &'ctx Context) -> Self {
+    pub fn new(context: &'ctx Context, opt_level: OptLevel) -> Self {
         let builder = context.create_builder();
         let module = context.create_module("kaleidrs_module");
 
@@ -66,7 +67,7 @@ impl<'ctx> LLVMContext<'ctx> {
                 &triple, 
                 "generic", 
                 "", 
-                OptimizationLevel::None, 
+                opt_level.into(), 
                 RelocMode::Default, 
                 CodeModel::Default
             )
@@ -97,10 +98,12 @@ impl<'ctx> LLVMContext<'ctx> {
     }
 
     // Optimization passes
-    pub fn run_passes(&self) {
+    pub fn run_passes(&self, passes: &str) {
         let pass_options = PassBuilderOptions::create();
+
+        // Default passes
         pass_options.set_verify_each(true);
-        pass_options.set_debug_logging(true);
+        pass_options.set_debug_logging(false);
         pass_options.set_loop_interleaving(true);
         pass_options.set_loop_vectorization(true);
         pass_options.set_loop_slp_vectorization(true);
@@ -112,7 +115,7 @@ impl<'ctx> LLVMContext<'ctx> {
         pass_options.set_merge_functions(true);
 
         self.module.run_passes(
-            "instcombine,reassociate,gvn,simplifycfg", 
+            passes, 
             &self.machine, 
             pass_options
         ).unwrap();

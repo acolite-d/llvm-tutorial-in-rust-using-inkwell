@@ -1,7 +1,4 @@
-#[allow(dead_code, unused_variables, unused_imports)]
-use std::io::{BufRead, BufReader};
 use std::str::SplitWhitespace;
-
 
 // Our tokens for the Kaleidoscope language, in the original
 // tutorial, delimiters like commas, parenthesis, semicolons

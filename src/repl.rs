@@ -1,13 +1,11 @@
 use std::io::Write;
 
-use crate::frontend::{
-    lexer::{Token, Lex},
+use crate::{cli::OptLevel, frontend::{
+    lexer::{Lex, Token},
     parser::{
-        parse_extern, 
-        parse_definition, 
-        parse_top_level_expr,
+        parse_definition, parse_extern, parse_top_level_expr
     }
-};
+}};
 
 use crate::backend::llvm_backend::{LLVMCodeGen, LLVMContext};
 
@@ -71,10 +69,10 @@ pub fn ast_parser_driver() {
     }
 }
 
-pub fn llvm_ir_gen_driver() {
+pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
     let context = inkwell::context::Context::create();
 
-    let sesh_ctx = LLVMContext::new(&context);
+    let sesh_ctx = LLVMContext::new(&context, opt_level);
     let mut input_buf = String::new();
 
     loop {
@@ -92,7 +90,7 @@ pub fn llvm_ir_gen_driver() {
                     println!("Parsed a function definition.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(_ir) => {
-                            // sesh_ctx.run_passes();
+                            sesh_ctx.run_passes(passes);
                             sesh_ctx.dump_module();
                         },
                         Err(e) => eprintln!("Backend error: {}", e)
@@ -127,7 +125,7 @@ pub fn llvm_ir_gen_driver() {
                     println!("Parsed a top level expression.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(_ir) => { 
-                            sesh_ctx.run_passes();
+                            sesh_ctx.run_passes(passes);
                             sesh_ctx.dump_module();
                             
                             unsafe {
