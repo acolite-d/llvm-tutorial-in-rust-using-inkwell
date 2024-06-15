@@ -1,11 +1,12 @@
 use std::io::Write;
 
-use crate::{cli::OptLevel, frontend::{
-    lexer::{Lex, Token},
-    parser::{
-        parse_definition, parse_extern, parse_top_level_expr
-    }
-}};
+use crate::{
+    cli::OptLevel,
+    frontend::{
+        lexer::{Lex, Token},
+        parser::{parse_definition, parse_extern, parse_top_level_expr},
+    },
+};
 
 use crate::backend::llvm_backend::{LLVMCodeGen, LLVMContext};
 
@@ -92,8 +93,8 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
                         Ok(_ir) => {
                             sesh_ctx.run_passes(passes);
                             sesh_ctx.dump_module();
-                        },
-                        Err(e) => eprintln!("Backend error: {}", e)
+                        }
+                        Err(e) => eprintln!("Backend error: {}", e),
                     }
                 }
                 Err(err) => {
@@ -107,7 +108,7 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
                     println!("Parsed an extern.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(_ir) => sesh_ctx.dump_module(),
-                        Err(e) => eprintln!("Backend error: {}", e)
+                        Err(e) => eprintln!("Backend error: {}", e),
                     }
                 }
                 Err(err) => {
@@ -124,12 +125,13 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
                 Ok(ast) => {
                     println!("Parsed a top level expression.");
                     match ast.codegen(&sesh_ctx) {
-                        Ok(_ir) => { 
+                        Ok(_ir) => {
                             sesh_ctx.run_passes(passes);
                             sesh_ctx.dump_module();
-                            
+
                             unsafe {
-                                let res = sesh_ctx.jit_eval()
+                                let res = sesh_ctx
+                                    .jit_eval()
                                     .expect("Failed to JIT top level pression into function!");
 
                                 println!("Jit compiled and evaluated to: {res}");

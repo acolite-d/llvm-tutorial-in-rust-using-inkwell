@@ -7,7 +7,7 @@ use std::str::SplitWhitespace;
 // are included in this enum for transparency.
 //
 // Unlike the tutorial, we will also use string references
-// that will live for source, or the "'src" lifetime. 
+// that will live for source, or the "'src" lifetime.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token<'src> {
@@ -23,7 +23,6 @@ pub enum Token<'src> {
     Unknown(&'src str) = 10,
 }
 
-
 // Operators found here, member field of Token::Operator variant
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,7 +32,6 @@ pub enum Ops {
     Mult = 2,
     Div = 3,
 }
-
 
 // For strings with no whitespace, need to be able to find out
 // if I should lex the entire string, or break it apart into slices
@@ -110,9 +108,7 @@ where
     type Item = Token<'src>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut slice = self.leftover_slice
-            .take()
-            .or_else(|| self.iter.next())?;
+        let mut slice = self.leftover_slice.take().or_else(|| self.iter.next())?;
 
         if slice.len() > 1 {
             if let Some(pos) = slice.find(Token::is_single_char_token) {
@@ -132,7 +128,7 @@ where
     }
 }
 
-// We can apply this trait to produce the iterator for 
+// We can apply this trait to produce the iterator for
 // Kaleidoscope tokens to foreign type str! Now to lex any
 // source code we can.
 // let source_code = read_source_code();

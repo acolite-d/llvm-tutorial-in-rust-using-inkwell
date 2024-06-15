@@ -5,15 +5,15 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
 use inkwell::module::{Linkage, Module};
-use inkwell::targets::{Target, TargetMachine, RelocMode, CodeModel};
+use inkwell::passes::PassBuilderOptions;
+use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue};
 use inkwell::OptimizationLevel;
-use inkwell::passes::PassBuilderOptions;
 use thiserror::Error;
 
 use crate::cli::OptLevel;
-use crate::frontend::ast::{ASTExpr, Prototype, Function};
+use crate::frontend::ast::{ASTExpr, Function, Prototype};
 use crate::frontend::lexer::Ops;
 
 type IRGenResult<'ir, 'src> = Result<AnyValueEnum<'ir>, BackendError<'src>>;
@@ -33,7 +33,10 @@ pub enum BackendError<'src> {
     MultipleFunctionDefs(&'src str),
 
     #[error("Incorrect number of arguments passed to {func_name}, expected {param_cnt}")]
-    IncorrectNumberOfArgs { func_name: &'src str, param_cnt: u32 },
+    IncorrectNumberOfArgs {
+        func_name: &'src str,
+        param_cnt: u32,
+    },
 
     #[error("LLVM failed to verify function {0}")]
     FailedToVerifyFunc(&'src str),
@@ -64,12 +67,12 @@ impl<'ctx> LLVMContext<'ctx> {
 
         let machine = target
             .create_target_machine(
-                &triple, 
-                "generic", 
-                "", 
-                opt_level.into(), 
-                RelocMode::Default, 
-                CodeModel::Default
+                &triple,
+                "generic",
+                "",
+                opt_level.into(),
+                RelocMode::Default,
+                CodeModel::Default,
             )
             .unwrap();
 
@@ -94,7 +97,11 @@ impl<'ctx> LLVMContext<'ctx> {
     // needed for REPL so that we don't define top level twice, just delete
     // it and then define it again.
     pub fn delete_top_level_expr(&self) {
-        unsafe { self.module.get_function("__anonymous_expr").map(|f| f.delete()) };
+        unsafe {
+            self.module
+                .get_function("__anonymous_expr")
+                .map(|f| f.delete())
+        };
     }
 
     // Optimization passes
@@ -114,21 +121,21 @@ impl<'ctx> LLVMContext<'ctx> {
         pass_options.set_call_graph_profile(true);
         pass_options.set_merge_functions(true);
 
-        self.module.run_passes(
-            passes, 
-            &self.machine, 
-            pass_options
-        ).unwrap();
+        self.module
+            .run_passes(passes, &self.machine, pass_options)
+            .unwrap();
     }
 
     // JIT evalution, creates an ExecutionEngine object, JIT compiles the function,
     // then attempts to call the function, will return the resulting floating point val.
     pub unsafe fn jit_eval(&self) -> Result<f64, BackendError> {
-
-        let exec_engine = self.module.create_jit_execution_engine(OptimizationLevel::None)
+        let exec_engine = self
+            .module
+            .create_jit_execution_engine(OptimizationLevel::None)
             .expect("FATAL: Failed to create JIT execution engine!");
 
-        let jitted_fn: JitFunction<'ctx, TopLevelSignature> = exec_engine.get_function("__anonymous_expr")
+        let jitted_fn: JitFunction<'ctx, TopLevelSignature> = exec_engine
+            .get_function("__anonymous_expr")
             .expect("FATAL: symbol '__anonymous_expr' not present in module!");
 
         let res = jitted_fn.call();
@@ -151,20 +158,16 @@ impl<'ctx> LLVMContext<'ctx> {
 // this method to return a different LLVM value depending on node
 pub trait LLVMCodeGen<'ctx, 'ir, 'src>
 where
-    'ctx: 'ir // Context and IR have a unique relationship, bounded.
+    'ctx: 'ir,
 {
-    fn codegen(
-        &self, context: &LLVMContext<'ctx>
-    ) -> IRGenResult<'ir, 'src>;
+    fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src>;
 }
 
 impl<'ctx, 'ir, 'src> LLVMCodeGen<'ctx, 'ir, 'src> for ASTExpr<'src>
 where
-    'ctx: 'ir 
+    'ctx: 'ir,
 {
-    fn codegen(
-        &self, context: &LLVMContext<'ctx>
-    ) -> IRGenResult<'ir, 'src> {
+    fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
         use ASTExpr::*;
 
         // To generate code for any expression, we must handle the number, variable, call, and
@@ -174,7 +177,7 @@ where
             NumberExpr(num) => {
                 let float_type = context.context.f64_type();
                 Ok(float_type.const_float(*num).as_any_value_enum())
-            },
+            }
 
             // To handle variable case, make sure the variable exists in symbol table,
             // if it doesn't return error, otherwise, fetch the LLVM Value for that variable
@@ -184,79 +187,86 @@ where
                 } else {
                     Err(BackendError::UnknownVariable(varname))
                 }
-            },
+            }
 
             // Generate the left and right code first, then build the correct
             // instruction depending on the operator.
             BinaryExpr { op, left, right } => {
-                let left_genval = left
-                    .codegen(context)
-                    .map(AnyValueEnum::into_float_value)?;
+                let left_genval = left.codegen(context).map(AnyValueEnum::into_float_value)?;
 
-                let right_genval = right
-                    .codegen(context)
-                    .map(AnyValueEnum::into_float_value)?;
-        
+                let right_genval = right.codegen(context).map(AnyValueEnum::into_float_value)?;
+
                 let float_res = match *op {
-                    Ops::Plus => context.builder.build_float_add(
-                        left_genval, right_genval, &"addtmp"
-                    ),
-        
-                    Ops::Minus => context.builder.build_float_sub(
-                        left_genval, right_genval, &"subtmp"
-                    ),
-        
-                    Ops::Mult => context.builder.build_float_mul(
-                        left_genval, right_genval, &"multmp"
-                    ),
-        
-                    Ops::Div => context.builder.build_float_div(
-                        left_genval, right_genval, &"divtmp"
-                    ),
+                    Ops::Plus => {
+                        context
+                            .builder
+                            .build_float_add(left_genval, right_genval, &"addtmp")
+                    }
+
+                    Ops::Minus => {
+                        context
+                            .builder
+                            .build_float_sub(left_genval, right_genval, &"subtmp")
+                    }
+
+                    Ops::Mult => {
+                        context
+                            .builder
+                            .build_float_mul(left_genval, right_genval, &"multmp")
+                    }
+
+                    Ops::Div => {
+                        context
+                            .builder
+                            .build_float_div(left_genval, right_genval, &"divtmp")
+                    }
                 };
-        
-                Ok(float_res.expect("Irrecoverable: LLVM failed to generate insn").as_any_value_enum())
-            },
+
+                Ok(float_res
+                    .expect("Irrecoverable: LLVM failed to generate insn")
+                    .as_any_value_enum())
+            }
 
             // This one is the most complex expression to handle...
             CallExpr { ref callee, args } => {
-
-                // First, see if the function is defined in LLVM module, if not, we have 
+                // First, see if the function is defined in LLVM module, if not, we have
                 // an undefined function trying to be called
                 let function = context
                     .module
                     .get_function(callee)
                     .ok_or(BackendError::UndefinedFunction(callee))?;
-        
+
                 let param_cnt = function.count_params();
-        
-                if param_cnt != args.len() as u32 { // verify parameter counts
+
+                if param_cnt != args.len() as u32 {
+                    // verify parameter counts
                     return Err(BackendError::IncorrectNumberOfArgs {
                         func_name: callee,
                         param_cnt,
                     });
                 }
-                
+
                 // Generate code for the arguments passed, call site expressions,
                 // Any of the arguments could also produce a backend error, so propogate up
-                let llvm_val_args = args.iter()
+                let llvm_val_args = args
+                    .iter()
                     .map(|arg| arg.codegen(context))
                     .collect::<Result<Vec<_>, BackendError>>()?;
-        
+
                 let llvm_val_args: Vec<BasicMetadataValueEnum> = llvm_val_args
                     .into_iter()
                     .map(|val| BasicMetadataValueEnum::FloatValue(val.into_float_value()))
                     .collect();
-                
+
                 // Building a call requires arguments be of type BasicMetadataValueEnum,
                 // as a slice of them, had to convert, but does produce LLVM call instruction.
                 let call = context
                     .builder
                     .build_call(function, llvm_val_args.as_slice(), &"calltmp")
                     .expect("Irrecoverable: LLVM failed to build call expression");
-        
+
                 Ok(call.as_any_value_enum())
-            },
+            }
         }
     }
 }
@@ -265,7 +275,7 @@ where
 // Add the function to module with type as fn(), fn (float) fn(float, float), etc...
 impl<'ctx, 'ir, 'src> LLVMCodeGen<'ctx, 'ir, 'src> for Prototype<'src>
 where
-    'ctx: 'ir 
+    'ctx: 'ir,
 {
     fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
         let param_types =
@@ -292,10 +302,9 @@ where
 
 impl<'ctx, 'ir, 'src> LLVMCodeGen<'ctx, 'ir, 'src> for Function<'src>
 where
-    'ctx: 'ir  
+    'ctx: 'ir,
 {
     fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
-
         // See if function has been defined, if not, generate prototype
         // to get the LLVM function value.
         let fn_val = match context.module.get_function(&self.proto.name) {
@@ -314,15 +323,18 @@ where
         let bb_entry = context.context.append_basic_block(fn_val, "entry");
         context.builder.position_at_end(bb_entry);
 
-        // Update the symbol table with the args names and references 
+        // Update the symbol table with the args names and references
         // to their LLVM values.
         context.sym_table.borrow_mut().clear();
         for arg in fn_val.get_params() {
-
             // TODO: Change the named value key to a non-owned CStr reference
             // so I am not copying and cloning to Rust Strings
-            let owned_str = arg.into_float_value()
-                .get_name().to_str().unwrap().to_string();
+            let owned_str = arg
+                .into_float_value()
+                .get_name()
+                .to_str()
+                .unwrap()
+                .to_string();
 
             context
                 .sym_table

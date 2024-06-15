@@ -1,4 +1,7 @@
-use clap::{builder::{OsStr, PossibleValue}, Parser, ValueEnum};
+use clap::{
+    builder::{OsStr, PossibleValue},
+    Parser, ValueEnum,
+};
 use inkwell;
 
 #[derive(Parser)]
@@ -17,7 +20,6 @@ pub struct Cli {
     pub use_frontend_only: bool,
 }
 
-
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OptLevel {
     O0,
@@ -32,14 +34,12 @@ impl ValueEnum for OptLevel {
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(
-            match self {
-                OptLevel::O0 => PossibleValue::new("O0").help("No optimization"),
-                OptLevel::O1 => PossibleValue::new("O1").help("Less optimization"),
-                OptLevel::O2 => PossibleValue::new("O2").help("Default optimization"),
-                OptLevel::O3 => PossibleValue::new("O3").help("Aggressive optimization"),
-            }
-        )
+        Some(match self {
+            OptLevel::O0 => PossibleValue::new("O0").help("No optimization"),
+            OptLevel::O1 => PossibleValue::new("O1").help("Less optimization"),
+            OptLevel::O2 => PossibleValue::new("O2").help("Default optimization"),
+            OptLevel::O3 => PossibleValue::new("O3").help("Aggressive optimization"),
+        })
     }
 }
 

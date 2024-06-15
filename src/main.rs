@@ -2,18 +2,16 @@
 extern crate lazy_static;
 
 mod backend;
+mod cli;
 mod frontend;
 mod repl;
-mod cli;
 
-use clap::{Parser};
+use clap::Parser;
 use inkwell::targets;
 
 use cli::{Cli, OptLevel};
-use repl::{ast_parser_driver, llvm_ir_gen_driver};
 
 fn main() {
-
     let cli = Cli::parse();
 
     let target_config = targets::InitializationConfig::default();
@@ -23,9 +21,10 @@ fn main() {
 
     targets::Target::initialize_all(&target_config);
 
+    // start REPL drivers, infinite loops
     if cli.use_frontend_only {
-        ast_parser_driver();
+        repl::ast_parser_driver();
     } else {
-        llvm_ir_gen_driver(cli.opt_level, &cli.passes);
+        repl::llvm_ir_gen_driver(cli.opt_level, &cli.passes);
     }
 }

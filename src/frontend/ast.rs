@@ -1,13 +1,12 @@
 use crate::frontend::lexer::Ops;
 
-
 // NOTE TO DEVELOPERS:
 // Previously, the AST followed the tutorial by the letter,
 // and created a AST composed of dynamically dispatched expression
 // nodes using Rust trait objects. (See previous commit: )
 //
 // I found it far more efficient and idiomatically Rust,
-// to use enum dispatch instead. Dynamic dispatch did 
+// to use enum dispatch instead. Dynamic dispatch did
 // not seem to be right tool for the job. Reasons why:
 // - No user-defined "AST" trait needed, just the enum and structs
 // - less indirection with Vtables, likely a whole lot faster
