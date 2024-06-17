@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
@@ -8,8 +9,9 @@ use inkwell::module::{Linkage, Module};
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 use inkwell::types::BasicMetadataTypeEnum;
-use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue};
+use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FloatMathValue};
 use inkwell::OptimizationLevel;
+use inkwell::FloatPredicate;
 use thiserror::Error;
 
 use crate::cli::OptLevel;
@@ -196,7 +198,7 @@ where
 
                 let right_genval = right.codegen(context).map(AnyValueEnum::into_float_value)?;
 
-                let float_res = match *op {
+                let resulting_value = match *op {
                     Ops::Plus => {
                         context
                             .builder
@@ -220,11 +222,54 @@ where
                             .builder
                             .build_float_div(left_genval, right_genval, &"divtmp")
                     }
+                    
+                    // For the comparison operators, map() a conversion back to float, Kaleidoscope only works with floating point nums!
+                    Ops::Eq => {
+                        let cmp_int_val = context
+                            .builder
+                            .build_float_compare(FloatPredicate::OEQ, left_genval, right_genval, &"eqtmp")
+                            .unwrap();
+
+                        context.builder.build_unsigned_int_to_float(
+                            cmp_int_val, context.context.f64_type(), &"booltmp"
+                        )
+                    }
+
+                    Ops::Neq => {
+                        let cmp_int_val = context
+                            .builder
+                            .build_float_compare(FloatPredicate::ONE, left_genval, right_genval, &"neqtmp")
+                            .unwrap();
+
+                        context.builder.build_unsigned_int_to_float(
+                            cmp_int_val, context.context.f64_type(), &"booltmp"
+                        )
+                    }
+
+                    Ops::Gt => {
+                        let cmp_int_val = context
+                            .builder
+                            .build_float_compare(FloatPredicate::OGT, left_genval, right_genval, &"gttmp")
+                            .unwrap();
+
+                        context.builder.build_unsigned_int_to_float(
+                            cmp_int_val, context.context.f64_type(), &"booltmp"
+                        )
+                    }
+
+                    Ops::Lt => {
+                        let cmp_int_val = context
+                            .builder
+                            .build_float_compare(FloatPredicate::OLT, left_genval, right_genval, &"lttmp")
+                            .unwrap();
+
+                        context.builder.build_unsigned_int_to_float(
+                            cmp_int_val, context.context.f64_type(), &"booltmp"
+                        )
+                    }
                 };
 
-                Ok(float_res
-                    .expect("Irrecoverable: LLVM failed to generate insn")
-                    .as_any_value_enum())
+                Ok(resulting_value.unwrap().as_any_value_enum())
             }
 
             // This one is the most complex expression to handle...
@@ -266,6 +311,136 @@ where
                     .expect("Irrecoverable: LLVM failed to build call expression");
 
                 Ok(call.as_any_value_enum())
+            }
+
+            IfExpr { cond, then_branch, else_branch } => {
+                let cond_codegen = cond.codegen(context)?;
+
+                let one = context.context.f64_type().const_float(1.0);
+                
+                // Compute the truth of the condition by comparing value of expression to one
+                let cond_bool = context.builder.build_float_compare(
+                    FloatPredicate::OEQ,
+                    cond_codegen.into_float_value(), 
+                    one, 
+                    &"iftemp"
+                )
+                .expect("FATAL: LLVM failed to build float compare!");
+
+                let function = context.builder.get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+                
+                // Basic blocks to be added for this branch
+                // true path - 1, not true - 2, merge - 3
+                let bbs = [&"then", &"else", &"ifcont"]
+                    .into_iter()
+                    .map(|bb_name| context.context.append_basic_block(function, bb_name))
+                    .collect::<Vec<BasicBlock<'ctx>>>();
+
+                let _llvm_br_insn = context.builder.build_conditional_branch(
+                    cond_bool, bbs[0], bbs[1]
+                ).expect("FATAL: LLVM failed to build br instruction!");
+                
+                // IMPORTANT: Be sure you set the builder cursor to the appropriate block
+                // before calling codegen() methods on then and else expressions, otherwise
+                // we would generate code in wrong basic block and mess everything up.
+                context.builder.position_at_end(bbs[0]);
+                let then_v = then_branch.codegen(context)?;
+
+                // Don't forget to branch back to merge basic block!!!
+                context.builder.build_unconditional_branch(bbs[2]).expect("FATAL: LLVM failed to build branch!");
+
+                context.builder.position_at_end(bbs[1]);
+                let else_v = else_branch.codegen(context)?;
+                context.builder.build_unconditional_branch(bbs[2]).expect("FATAL: LLVM failed to build branch!");
+
+                context.builder.position_at_end(bbs[2]);
+                let phi_node = context.builder.build_phi(
+                    context.context.f64_type(), &"iftmp"
+                ).expect("LLVM failed to create PHI!");
+
+                phi_node.add_incoming(&[
+                    (&then_v.into_float_value() as &dyn BasicValue<'ctx>, bbs[0]),
+                    (&else_v.into_float_value() as &dyn BasicValue<'ctx>, bbs[1]),
+                ]);
+
+                Ok(phi_node.as_any_value_enum())
+            }
+
+            ForLoopExpr { varname, start, end, step, body } => {
+                let start_genval = start.codegen(context)?;
+
+
+                let preheader_bb = context.builder.get_insert_block().unwrap();
+                let function = preheader_bb.get_parent().unwrap();
+
+                let loop_bb = context.context.append_basic_block(function, &"loop");
+
+                context.builder.position_at_end(preheader_bb);
+                context.builder.build_unconditional_branch(loop_bb)
+                    .expect("FATAL: LLVM failed to build branch!");
+
+                context.builder.position_at_end(loop_bb);
+
+                let loop_phi_var = context.builder.build_phi(context.context.f64_type(), varname)
+                    .expect("FATAL: LLVM failed to create PHI!");
+
+                loop_phi_var.add_incoming(&[
+                    (&start_genval.into_float_value() as &dyn BasicValue<'ctx>, preheader_bb)
+                ]);
+
+                let shadowed_var = context.sym_table.borrow().get(*varname).copied();
+                context.sym_table.borrow_mut()
+                    .insert(varname.to_string(), loop_phi_var.as_any_value_enum());
+
+                body.codegen(context)?;
+                
+                let step_genval = {
+                    if let Some(step_expr) = step {
+                        step_expr.codegen(context)?
+                    } else {
+                        context.context.f64_type().const_float(1.0).as_any_value_enum()
+                    }
+                };
+
+                let next_var = context.builder.build_float_add(
+                    loop_phi_var.as_basic_value().into_float_value(), 
+                    step_genval.into_float_value(), 
+                    &"nextvar"
+                ).unwrap();
+
+                let end_cond = end.codegen(context)?;
+
+                let cmp_val = context.builder.build_float_compare(
+                    FloatPredicate::ONE, 
+                    end_cond.into_float_value(), 
+                    context.context.f64_type().const_float(0.0), 
+                    &"loopcond"
+                ).expect("FATAL: LLVM failed to build comparison instruction!");
+
+                let afterloop_bb = context.context.append_basic_block(function, "afterloop");
+
+                context.builder.position_at_end(loop_bb);
+
+                context.builder.build_conditional_branch(cmp_val, loop_bb, afterloop_bb).unwrap();
+
+                context.builder.position_at_end(afterloop_bb);
+
+                loop_phi_var.add_incoming(&[
+                    (&next_var as &dyn BasicValue<'ctx>, afterloop_bb)
+                ]);
+
+                if let Some(variable) = shadowed_var {
+                    context.sym_table.borrow_mut().insert(varname.to_string(), variable);
+                } else {
+                    context.sym_table.borrow_mut().remove(*varname);
+                }
+                
+                Ok(
+                    context.context.f64_type().const_float(0.0).as_any_value_enum()
+                )
             }
         }
     }

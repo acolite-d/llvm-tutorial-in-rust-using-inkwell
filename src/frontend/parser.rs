@@ -19,6 +19,10 @@ lazy_static! {
         map.insert(Ops::Minus, 20);
         map.insert(Ops::Mult, 40);
         map.insert(Ops::Div, 40);
+        map.insert(Ops::Eq, 50);
+        map.insert(Ops::Neq, 50);
+        map.insert(Ops::Gt, 50);
+        map.insert(Ops::Lt, 50);
         map
     };
 }
@@ -120,11 +124,90 @@ fn parse_primary<'src>(
 
         Some(Token::OpenParen) => parse_paren_expr(tokens),
 
+        Some(Token::If) => parse_if_expr(tokens),
+
+        Some(Token::For) => parse_for_loop_expr(tokens),
+
         Some(unexpected) => Err(ParserError::UnexpectedToken(*unexpected)),
 
         None => Err(ParserError::UnexpectedEOI),
     }
 }
+
+/// forexpr ::= 'for' identifier '=' expression ',' expression (',' expr)? 'in' expression
+fn parse_for_loop_expr<'src>(
+    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>
+) -> ExprParseResult<'src> {
+    let Some(Token::For) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&"for"));
+    };
+
+    let Some(Token::Identifier(varname)) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&"variable"));
+    };
+
+    let Some(Token::Operator(Ops::Eq)) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&"="));
+    };
+
+    let start = parse_expression(tokens)?;
+
+    let Some(Token::Comma) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&","));
+    };
+
+    let end = parse_expression(tokens)?;
+
+    let mut step: Option<Box<ASTExpr>> = None;
+    if let Some(Token::Comma) = tokens.next_if(|token| matches!(token, Token::Comma)) {
+        step = Some(parse_expression(tokens)?); 
+    }
+
+    let Some(Token::In) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&"in"));
+    };
+
+    let body = parse_expression(tokens)?;
+
+    Ok(Box::new(ASTExpr::ForLoopExpr { 
+        varname, 
+        start,
+        end,
+        step,
+        body
+    }))
+}
+
+
+/// ifexpr ::= 'if' expression 'then' expression 'else' expression
+fn parse_if_expr<'src>(
+    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>
+) -> ExprParseResult<'src> {
+    let Some(Token::If) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&"if"));
+    };
+
+    let cond = parse_expression(tokens)?;
+
+    let Some(Token::Then) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&"then"));
+    };
+
+    let then_branch = parse_expression(tokens)?;
+
+    let Some(Token::Else) = tokens.next() else {
+        return Err(ParserError::ExpectedToken(&"else"));
+    };
+
+    let else_branch = parse_expression(tokens)?;
+
+    Ok(Box::new(ASTExpr::IfExpr { 
+        cond, 
+        then_branch, 
+        else_branch
+    }))
+}
+
 
 /// numberexpr ::= number
 fn parse_number_expr<'src>(
@@ -459,6 +542,37 @@ mod tests {
                     right: Box::new(VariableExpr(&"upper")),
                 })
             }))
+        );
+    }
+
+    #[test]
+    fn parsing_if_then_else_expressions() {
+        let mut tokens = " if pred then x+1 else x-1; ".lex().peekable();
+        let if_expr    = parse_if_expr(&mut tokens);
+
+        assert_eq!(
+            if_expr,
+            Ok(
+                Box::new(
+                    IfExpr { 
+                        cond: Box::new(VariableExpr(&"pred")),
+                        then_branch: Box::new(
+                            BinaryExpr { 
+                                op: Plus, 
+                                left: Box::new(VariableExpr(&"x")), 
+                                right: Box::new(NumberExpr(1.0)),
+                            }
+                        ),
+                        else_branch: Box::new(
+                            BinaryExpr { 
+                                op: Minus, 
+                                left: Box::new(VariableExpr(&"x")), 
+                                right: Box::new(NumberExpr(1.0)),
+                            }
+                        )
+                    }
+                )
+            )
         );
     }
 }

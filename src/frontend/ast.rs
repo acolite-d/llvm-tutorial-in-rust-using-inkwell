@@ -1,6 +1,6 @@
 use crate::frontend::lexer::Ops;
 
-// NOTE TO DEVELOPERS:
+// NOTE TO LEARNERS/DEVELOPERS:
 // Previously, the AST followed the tutorial by the letter,
 // and created a AST composed of dynamically dispatched expression
 // nodes using Rust trait objects. (See previous commit: )
@@ -30,6 +30,18 @@ pub enum ASTExpr<'src> {
         callee: &'src str,
         args: Vec<Box<ASTExpr<'src>>>,
     },
+    IfExpr {
+        cond: Box<ASTExpr<'src>>,
+        then_branch: Box<ASTExpr<'src>>,
+        else_branch: Box<ASTExpr<'src>>,
+    },
+    ForLoopExpr {
+        varname: &'src str,
+        start: Box<ASTExpr<'src>>,
+        end: Box<ASTExpr<'src>>,
+        step: Option<Box<ASTExpr<'src>>>,
+        body: Box<ASTExpr<'src>>,
+    }
 }
 
 // Prototype, mimics that off the tutorial C++ class

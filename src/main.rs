@@ -9,10 +9,8 @@ mod repl;
 use clap::Parser;
 use inkwell::targets;
 
-use cli::{Cli, OptLevel};
-
 fn main() {
-    let cli = Cli::parse();
+    let cli = cli::Cli::parse();
 
     let target_config = targets::InitializationConfig::default();
 

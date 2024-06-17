@@ -20,17 +20,29 @@ pub enum Token<'src> {
     ClosedParen = 7,
     Comma = 8,
     Semicolon = 9,
-    Unknown(&'src str) = 10,
+    If = 10,
+    Then = 11,
+    Else = 12,
+    For = 13,
+    In = 14,
+    Unknown(&'src str) = 255,
 }
 
 // Operators found here, member field of Token::Operator variant
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Ops {
+    // General math on floating point values
     Plus = 0,
     Minus = 1,
     Mult = 2,
     Div = 3,
+
+    // Comparison of floating point values
+    Eq = 4, // Let's just use "=", which is assignment in most C-based languages, but here it will be comparison
+    Neq = 5, // Let's use "!"
+    Lt = 6, // "<"
+    Gt = 7, // ">"
 }
 
 // For strings with no whitespace, need to be able to find out
@@ -39,7 +51,7 @@ pub enum Ops {
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
-            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' => true,
+            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' | '=' | '!' | '<' | '>' => true,
 
             _ => false,
         }
@@ -58,12 +70,22 @@ fn tokenize(string: &str) -> Token {
         // Keywords
         "def" => FuncDef,
         "extern" => Extern,
+        "if" => If,
+        "then" => Then,
+        "else" => Else,
+        "for" => For,
+        "in" => In,
 
         // Operators
         "+" => Operator(Ops::Plus),
         "-" => Operator(Ops::Minus),
         "*" => Operator(Ops::Mult),
         "/" => Operator(Ops::Div),
+        "=" => Operator(Ops::Eq),
+        "!" => Operator(Ops::Neq),
+        "<" => Operator(Ops::Lt),
+        ">" => Operator(Ops::Gt),
+
         // Parenthesis
         "(" => OpenParen,
         ")" => ClosedParen,
