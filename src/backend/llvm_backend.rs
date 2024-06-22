@@ -9,7 +9,9 @@ use inkwell::module::{Linkage, Module};
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 use inkwell::types::BasicMetadataTypeEnum;
-use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue};
+use inkwell::values::{
+    AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FunctionValue, PointerValue
+};
 use inkwell::FloatPredicate;
 use inkwell::OptimizationLevel;
 use thiserror::Error;
@@ -70,7 +72,7 @@ pub struct LLVMContext<'ctx> {
     module: Module<'ctx>,
     target: Target,
     machine: TargetMachine,
-    sym_table: RefCell<HashMap<String, AnyValueEnum<'ctx>>>,
+    sym_table: RefCell<HashMap<String, PointerValue<'ctx>>>,
 }
 
 impl<'ctx> LLVMContext<'ctx> {
@@ -136,6 +138,7 @@ impl<'ctx> LLVMContext<'ctx> {
         pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
         pass_options.set_call_graph_profile(true);
         pass_options.set_merge_functions(true);
+        pass_options.set_promot
 
         self.module
             .run_passes(passes, &self.machine, pass_options)
@@ -159,6 +162,18 @@ impl<'ctx> LLVMContext<'ctx> {
         exec_engine.remove_module(&self.module).unwrap();
 
         Ok(res)
+    }
+
+    fn create_entry_block_alloca(
+        &self, function: FunctionValue<'ctx>, var_name: &str
+    ) -> PointerValue<'ctx> {
+        let ir_builder = self.context.create_builder();
+        ir_builder.position_at_end(function.get_first_basic_block().unwrap());
+
+        let alloca_insn = ir_builder.build_alloca(self.context.f64_type(), var_name)
+            .expect("FATAL: LLVM failed to build alloca instruction");
+
+        alloca_insn
     }
 }
 
@@ -198,8 +213,11 @@ where
             // To handle variable case, make sure the variable exists in symbol table,
             // if it doesn't return error, otherwise, fetch the LLVM Value for that variable
             VariableExpr(varname) => {
-                if let Some(llvm_val) = context.sym_table.borrow().get(*varname) {
-                    Ok(*llvm_val)
+                if let Some(pointer_val) = context.sym_table.borrow().get(*varname) {
+                    let load_insn = context.builder.build_load(context.context.f64_type(), *pointer_val, &varname)
+                        .expect("FATAL: LLVM failed to build load instruction");
+
+                    Ok(load_insn.as_any_value_enum())
                 } else {
                     Err(BackendError::UnknownVariable(varname))
                 }
@@ -468,6 +486,25 @@ where
                 Ok(phi_node.as_any_value_enum())
             }
 
+            // Output for-loop as:
+            //   var = alloca double
+            //   ...
+            //   start = startexpr
+            //   store start -> var
+            //   goto loop
+            // loop:
+            //   ...
+            //   bodyexpr
+            //   ...
+            // loopend:
+            //   step = stepexpr
+            //   endcond = endexpr
+            //
+            //   curvar = load var
+            //   nextvar = curvar + step
+            //   store nextvar -> var
+            //   br endcond, loop, endloop
+            // outloop:
             ForLoopExpr {
                 varname,
                 start,
@@ -475,11 +512,20 @@ where
                 step,
                 body,
             } => {
-                let start_genval = start.codegen(context)?;
 
                 let preheader_bb = context.builder.get_insert_block().unwrap();
                 let function = preheader_bb.get_parent().unwrap();
 
+                // Create alloca for loop variable at entry block of function before start expression
+                let loop_var_ptr = context.create_entry_block_alloca(function, varname);
+                let start_genval = start.codegen(context)?;
+
+                // Store start expression into stack pointer of loop variable
+                context.builder.build_store(loop_var_ptr, start_genval.into_float_value())
+                    .expect("FATAL: LLVM failed to build store instruction");
+                
+                // Build the main loop basic block then a unconditional fall through branch
+                // at header bb to make sure we fall into loop
                 let loop_bb = context.context.append_basic_block(function, &"loop");
 
                 context.builder.position_at_end(preheader_bb);
@@ -488,26 +534,20 @@ where
                     .build_unconditional_branch(loop_bb)
                     .expect("FATAL: LLVM failed to build branch!");
 
+                // Set our builder cursor inside the loop
                 context.builder.position_at_end(loop_bb);
 
-                let loop_phi_var = context
-                    .builder
-                    .build_phi(context.context.f64_type(), varname)
-                    .expect("FATAL: LLVM failed to create PHI!");
-
-                loop_phi_var.add_incoming(&[(
-                    &start_genval.into_float_value() as &dyn BasicValue<'ctx>,
-                    preheader_bb,
-                )]);
-
+                // If there is a collision with the loop variable an one outside loop, shadow the
+                // outer scope variable in favor of the loop variable, restore later below
                 let shadowed_var = context.sym_table.borrow().get(*varname).copied();
-                context
-                    .sym_table
-                    .borrow_mut()
-                    .insert(varname.to_string(), loop_phi_var.as_any_value_enum());
+                context.sym_table.borrow_mut().insert(varname.to_string(), loop_var_ptr);
 
+                // Generate the body of the loop in the loop basic block
                 body.codegen(context)?;
 
+                // Step values are optional for this language. In the absence of one,
+                // Generate a basic step of +1.0 for each iteration. This is generated
+                // After the body so that the loop eventually stops after final step
                 let step_genval = {
                     if let Some(step_expr) = step {
                         step_expr.codegen(context)?
@@ -520,22 +560,34 @@ where
                     }
                 };
 
-                let next_var = context
+                // The end condition check, generated after step
+                let end_codegen = end.codegen(context)?;
+
+                // Following three statements, we load the stack variable, apply step
+                // then store it back to the stack
+                let cur_val = context
                     .builder
-                    .build_float_add(
-                        loop_phi_var.as_basic_value().into_float_value(),
-                        step_genval.into_float_value(),
-                        &"nextvar",
+                    .build_load(
+                        context.context.f64_type(), 
+                        loop_var_ptr, 
+                        &varname
                     )
-                    .unwrap();
+                    .map(|v| v.into_float_value())
+                    .expect("FATAL: LLVM failed to build load instruction");
 
-                let end_cond = end.codegen(context)?;
+                let _step_val = context.builder.build_float_add(
+                    cur_val, step_genval.into_float_value(), &"nextvar"
+                ).unwrap();
 
+                context.builder.build_store(loop_var_ptr, step_genval.into_float_value());
+
+                // Build the comparison, which will be the check to see if we branch out of the
+                // loop or continue
                 let cmp_val = context
                     .builder
                     .build_float_compare(
                         FloatPredicate::ONE,
-                        end_cond.into_float_value(),
+                        end_codegen.into_float_value(),
                         context.context.f64_type().const_float(0.0),
                         &"loopcond",
                     )
@@ -551,9 +603,10 @@ where
                     .unwrap();
 
                 context.builder.position_at_end(afterloop_bb);
-
-                loop_phi_var.add_incoming(&[(&next_var as &dyn BasicValue<'ctx>, afterloop_bb)]);
-
+                
+                // Above we collected a possible shadowed variable from the map
+                // of our variable symbols. If there was something that was shadowed
+                // restore it here, else, clear the loop variable from our scope
                 if let Some(variable) = shadowed_var {
                     context
                         .sym_table
@@ -609,7 +662,7 @@ where
                 fn_val.get_params()[0].set_name(&arg);
             }
 
-            OverloadedBinaryOpProto { args: (lhs, rhs), precedence, .. } => {
+            OverloadedBinaryOpProto { args: (lhs, rhs), .. } => {
                 let params = fn_val.get_params();
                 params[0].set_name(&lhs);
                 params[1].set_name(&rhs);
@@ -646,20 +699,32 @@ where
         // Update the symbol table with the args names and references
         // to their LLVM values.
         context.sym_table.borrow_mut().clear();
-        for arg in fn_val.get_params() {
+        for param in fn_val.get_params() {
             // TODO: Change the named value key to a non-owned CStr reference
             // so I am not copying and cloning to Rust Strings
-            let owned_str = arg
+            let owned_str = param
                 .into_float_value()
                 .get_name()
                 .to_str()
                 .unwrap()
                 .to_string();
 
+            // The mutable variables chapter, chapter 7, our passed arguments may be mutated.
+            // Store them all on the stack and allow the function inside to mutate them
+            // as memory objects
+
+            // Allocate the argument to stack.
+            let param_ptr = context.create_entry_block_alloca(fn_val, &owned_str);
+
+            // Store the value of this paramter to it's stack copy
+            let _store = context.builder.build_store(param_ptr, param)
+                .expect("FATAL: LLVM failed to build store instruction");
+
+            // Add it to scope
             context
                 .sym_table
                 .borrow_mut()
-                .insert(owned_str, arg.as_any_value_enum());
+                .insert(owned_str, param_ptr);
         }
 
         // Generate code for the body of the function as an ASTExpr node
