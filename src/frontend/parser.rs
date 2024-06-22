@@ -16,6 +16,7 @@ use crate::frontend::{
 lazy_static! {
     pub static ref OP_PRECEDENCE: MutStatic<HashMap<Ops, i32>> = {
         let mut map = HashMap::new();
+        map.insert(Ops::Assign, 2);
         map.insert(Ops::Plus, 20);
         map.insert(Ops::Minus, 20);
         map.insert(Ops::Mult, 40);

@@ -59,6 +59,9 @@ pub enum BackendError<'src> {
     #[error("Undefined operator used: {0:?}")]
     UndefinedOperator(Ops),
 
+    #[error("Incorrect assignment of variable, left side must be a string name")]
+    BadAssignment,
+
     #[error("Failed to JIT top level function expression!")]
     FailedToJIT,
 }
@@ -138,7 +141,6 @@ impl<'ctx> LLVMContext<'ctx> {
         pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
         pass_options.set_call_graph_profile(true);
         pass_options.set_merge_functions(true);
-        pass_options.set_promot
 
         self.module
             .run_passes(passes, &self.machine, pass_options)
@@ -246,128 +248,157 @@ where
             // Generate the left and right code first, then build the correct
             // instruction depending on the operator.
             BinaryExpr { op, left, right } => {
-                let left_genval = left.codegen(context).map(AnyValueEnum::into_float_value)?;
+                // Assignments are special cases, we only want to codegen the right
+                // then treat the left as a named symbol to store as variable name
+                if let Ops::Assign = op {
+                    // Make sure left hand side is a variable name
+                    let ptr_val = match **left {
+                        ASTExpr::VariableExpr(name) => {
+                            context.sym_table.borrow()
+                                .get(name)
+                                .copied()
+                                .ok_or(BackendError::UnknownVariable(name))
+                        }
 
-                let right_genval = right.codegen(context).map(AnyValueEnum::into_float_value)?;
+                        _ => Err(BackendError::BadAssignment),
+                    }?;
 
-                match *op {
-                    Ops::Plus => {
-                        let add = context
-                            .builder
-                            .build_float_add(left_genval, right_genval, &"addtmp")
-                            .unwrap();
+                    // Generate the right hand side, store its value in the variable, completeing assignment
+                    let right_genval = right.codegen(context)?;
 
-                        Ok(add.as_any_value_enum())
-                    }
+                    let _store = context.builder.build_store(ptr_val, right_genval.into_float_value())
+                        .expect("FATAL: LLVM failed to build store instruction");
 
-                    Ops::Minus => {
-                        let sub = context
-                            .builder
-                            .build_float_sub(left_genval, right_genval, &"subtmp")
-                            .unwrap();
+                    // Like C assignments, the right hand side is returned
+                    // so you have things like x = y = z = 1, where the three vars are all one
+                    // I personally hate this, but following the tutorial
+                    Ok(right_genval.as_any_value_enum())
+                } else {
 
-                        Ok(sub.as_any_value_enum())
-                    }
+                    // Generate both left hand and right hand sides of the expression first
+                    let left_genval = left.codegen(context).map(AnyValueEnum::into_float_value)?;
+                    let right_genval = right.codegen(context).map(AnyValueEnum::into_float_value)?;
 
-                    Ops::Mult => {
-                        let mult = context
-                            .builder
-                            .build_float_mul(left_genval, right_genval, &"multmp")
-                            .unwrap();
-
-                        Ok(mult.as_any_value_enum())
-                    }
-
-                    Ops::Div => {
-                        let div = context
-                            .builder
-                            .build_float_div(left_genval, right_genval, &"divtmp")
-                            .unwrap();
-
-                        Ok(div.as_any_value_enum())
-                    }
-
-                    // For the comparison operators, map() a conversion back to float, Kaleidoscope only works with floating point nums!
-                    Ops::Eq => {
-                        let cmp = context
-                            .builder
-                            .build_float_compare(
-                                FloatPredicate::OEQ,
-                                left_genval,
-                                right_genval,
-                                &"eqtmp",
-                            )
-                            .map(|int_val| to_llvm_float!(context, int_val))
-                            .unwrap();
-
-                        Ok(cmp.as_any_value_enum())
-                    }
-
-                    Ops::Neq => {
-                        let cmp = context
-                            .builder
-                            .build_float_compare(
-                                FloatPredicate::ONE,
-                                left_genval,
-                                right_genval,
-                                &"neqtmp",
-                            )
-                            .map(|int_val| to_llvm_float!(context, int_val))
-                            .unwrap();
-
-                        Ok(cmp.as_any_value_enum())
-                    }
-
-                    Ops::Gt => {
-                        let cmp = context
-                            .builder
-                            .build_float_compare(
-                                FloatPredicate::OGT,
-                                left_genval,
-                                right_genval,
-                                &"gttmp",
-                            )
-                            .map(|int_val| to_llvm_float!(context, int_val))
-                            .unwrap();
-
-                        Ok(cmp.as_any_value_enum())
-                    }
-
-                    Ops::Lt => {
-                        let cmp = context
-                            .builder
-                            .build_float_compare(
-                                FloatPredicate::OLT,
-                                left_genval,
-                                right_genval,
-                                &"lttmp",
-                            )
-                            .map(|int_val| to_llvm_float!(context, int_val))
-                            .unwrap();
-
-                        Ok(cmp.as_any_value_enum())
-                    }
-
-                    overloaded_op => {
-                        // First, we have to check if the operator has been defined, if not, then
-                        // we return error, because we cannot apply an operator that has not been defined
-                        // yet!
-                        let fn_name = format!("binary{}", overloaded_op.as_str());
-
-                        if let Some(binary_overload_fn) = context.module.get_function(&fn_name) {
-                            let args = [left_genval, right_genval]
-                                .into_iter()
-                                .map(|anyval| BasicMetadataValueEnum::FloatValue(anyval))
-                                .collect::<Vec<_>>();
-
-                            let overload_call = context
+                    // Apply the operator by the match statement, creating an add, subtract,... instruction
+                    match *op {
+                        Ops::Plus => {
+                            let add = context
                                 .builder
-                                .build_call(binary_overload_fn, args.as_slice(), &"calltmp")
-                                .expect("FATAL: LLVM failed to build call!");
-
-                            Ok(overload_call.as_any_value_enum())
-                        } else {
-                            Err(BackendError::UndefinedOperator(overloaded_op))
+                                .build_float_add(left_genval, right_genval, &"addtmp")
+                                .unwrap();
+    
+                            Ok(add.as_any_value_enum())
+                        }
+    
+                        Ops::Minus => {
+                            let sub = context
+                                .builder
+                                .build_float_sub(left_genval, right_genval, &"subtmp")
+                                .unwrap();
+    
+                            Ok(sub.as_any_value_enum())
+                        }
+    
+                        Ops::Mult => {
+                            let mult = context
+                                .builder
+                                .build_float_mul(left_genval, right_genval, &"multmp")
+                                .unwrap();
+    
+                            Ok(mult.as_any_value_enum())
+                        }
+    
+                        Ops::Div => {
+                            let div = context
+                                .builder
+                                .build_float_div(left_genval, right_genval, &"divtmp")
+                                .unwrap();
+    
+                            Ok(div.as_any_value_enum())
+                        }
+    
+                        // For the comparison operators, map() a conversion back to float, Kaleidoscope only works with floating point nums!
+                        Ops::Eq => {
+                            let cmp = context
+                                .builder
+                                .build_float_compare(
+                                    FloatPredicate::OEQ,
+                                    left_genval,
+                                    right_genval,
+                                    &"eqtmp",
+                                )
+                                .map(|int_val| to_llvm_float!(context, int_val))
+                                .unwrap();
+    
+                            Ok(cmp.as_any_value_enum())
+                        }
+    
+                        Ops::Neq => {
+                            let cmp = context
+                                .builder
+                                .build_float_compare(
+                                    FloatPredicate::ONE,
+                                    left_genval,
+                                    right_genval,
+                                    &"neqtmp",
+                                )
+                                .map(|int_val| to_llvm_float!(context, int_val))
+                                .unwrap();
+    
+                            Ok(cmp.as_any_value_enum())
+                        }
+    
+                        Ops::Gt => {
+                            let cmp = context
+                                .builder
+                                .build_float_compare(
+                                    FloatPredicate::OGT,
+                                    left_genval,
+                                    right_genval,
+                                    &"gttmp",
+                                )
+                                .map(|int_val| to_llvm_float!(context, int_val))
+                                .unwrap();
+    
+                            Ok(cmp.as_any_value_enum())
+                        }
+    
+                        Ops::Lt => {
+                            let cmp = context
+                                .builder
+                                .build_float_compare(
+                                    FloatPredicate::OLT,
+                                    left_genval,
+                                    right_genval,
+                                    &"lttmp",
+                                )
+                                .map(|int_val| to_llvm_float!(context, int_val))
+                                .unwrap();
+    
+                            Ok(cmp.as_any_value_enum())
+                        }
+    
+                        overloaded_op => {
+                            // First, we have to check if the operator has been defined, if not, then
+                            // we return error, because we cannot apply an operator that has not been defined
+                            // yet!
+                            let fn_name = format!("binary{}", overloaded_op.as_str());
+    
+                            if let Some(binary_overload_fn) = context.module.get_function(&fn_name) {
+                                let args = [left_genval, right_genval]
+                                    .into_iter()
+                                    .map(|anyval| BasicMetadataValueEnum::FloatValue(anyval))
+                                    .collect::<Vec<_>>();
+    
+                                let overload_call = context
+                                    .builder
+                                    .build_call(binary_overload_fn, args.as_slice(), &"calltmp")
+                                    .expect("FATAL: LLVM failed to build call!");
+    
+                                Ok(overload_call.as_any_value_enum())
+                            } else {
+                                Err(BackendError::UndefinedOperator(overloaded_op))
+                            }
                         }
                     }
                 }

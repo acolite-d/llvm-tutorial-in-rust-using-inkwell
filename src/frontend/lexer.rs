@@ -46,12 +46,15 @@ pub enum Ops {
     Lt = 6,  // "<"
     Gt = 7,  // ">"
 
+    // Assignment
+    Assign = 8,
+
     // These operators are left undefined, but can be overloaded by developers
-    Or = 8, // "|"
-    And = 9, // "&"
-    Xor = 10, // "^"
-    Negate = 11, // "!"
-    Colon = 12, // ":"
+    Or = 9, // "|"
+    And = 10, // "&"
+    Xor = 11, // "^"
+    Negate = 12, // "!"
+    Colon = 13, // ":"
 }
 
 impl Ops {
@@ -71,7 +74,8 @@ impl Ops {
             And => &"&",
             Xor => &"^",
             Negate => &"!",
-            Colon => &":"
+            Colon => &":",
+            Assign => &"=",
         }
     }
 }
@@ -122,6 +126,7 @@ fn tokenize(string: &str) -> Token {
         "&" => Operator(Ops::And),
         "^" => Operator(Ops::Xor),
         ":" => Operator(Ops::Colon),
+        "=" => Operator(Ops::Assign),
 
         // Parenthesis
         "(" => OpenParen,
