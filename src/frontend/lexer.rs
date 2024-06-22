@@ -25,6 +25,8 @@ pub enum Token<'src> {
     Else = 12,
     For = 13,
     In = 14,
+    UnaryOverload = 15,
+    BinaryOverload = 16,
     Unknown(&'src str) = 255,
 }
 
@@ -39,10 +41,39 @@ pub enum Ops {
     Div = 3,
 
     // Comparison of floating point values
-    Eq = 4, // Let's just use "=", which is assignment in most C-based languages, but here it will be comparison
-    Neq = 5, // Let's use "!"
-    Lt = 6, // "<"
-    Gt = 7, // ">"
+    Eq = 4,  // Let's use the C conventional "=="
+    Neq = 5, // Let's use "!="
+    Lt = 6,  // "<"
+    Gt = 7,  // ">"
+
+    // These operators are left undefined, but can be overloaded by developers
+    Or = 8, // "|"
+    And = 9, // "&"
+    Xor = 10, // "^"
+    Negate = 11, // "!"
+    Colon = 12, // ":"
+}
+
+impl Ops {
+    pub fn as_str(&self) -> &str {
+        use Ops::*;
+
+        match self {
+            Plus => &"+",
+            Minus => &"-",
+            Mult => &"*",
+            Div => &"/",
+            Eq => &"==",
+            Neq => &"!=",
+            Lt => &"<",
+            Gt => &">",
+            Or => &"|",
+            And => &"&",
+            Xor => &"^",
+            Negate => &"!",
+            Colon => &":"
+        }
+    }
 }
 
 // For strings with no whitespace, need to be able to find out
@@ -51,7 +82,8 @@ pub enum Ops {
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
-            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' | '=' | '!' | '<' | '>' => true,
+            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' | '<' | '>' | '!' | '|' | '&' | '^'
+            | ':' => true,
 
             _ => false,
         }
@@ -64,8 +96,6 @@ impl<'src> Token<'src> {
 fn tokenize(string: &str) -> Token {
     use Token::*;
 
-    assert!(string.len() != 0);
-
     match string {
         // Keywords
         "def" => FuncDef,
@@ -75,16 +105,23 @@ fn tokenize(string: &str) -> Token {
         "else" => Else,
         "for" => For,
         "in" => In,
+        "unary" => UnaryOverload,
+        "binary" => BinaryOverload,
 
         // Operators
         "+" => Operator(Ops::Plus),
         "-" => Operator(Ops::Minus),
         "*" => Operator(Ops::Mult),
         "/" => Operator(Ops::Div),
-        "=" => Operator(Ops::Eq),
-        "!" => Operator(Ops::Neq),
+        "==" => Operator(Ops::Eq),
+        "!=" => Operator(Ops::Neq),
         "<" => Operator(Ops::Lt),
         ">" => Operator(Ops::Gt),
+        "!" => Operator(Ops::Negate),
+        "|" => Operator(Ops::Or),
+        "&" => Operator(Ops::And),
+        "^" => Operator(Ops::Xor),
+        ":" => Operator(Ops::Colon),
 
         // Parenthesis
         "(" => OpenParen,
@@ -177,8 +214,8 @@ impl<'src, I> Tokens<'src, I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Ops::*;
     use Token::*;
+    use Ops::*;
 
     #[test]
     fn lexing_nums() {
@@ -264,9 +301,43 @@ mod tests {
                 Identifier(&"func3"),
                 OpenParen,
                 Identifier(&"x"),
-                Operator(Ops::Plus),
+                Operator(Plus),
                 Number(2.0),
                 ClosedParen,
+            ]
+        );
+    }
+
+    #[test]
+    fn lexing_prototype_overloads() {
+        let mut input = " def unary! (V) ";
+        let mut tokens = input.lex();
+
+        assert_eq!(
+            tokens.collect::<Vec<Token>>(),
+            vec![
+                FuncDef,
+                UnaryOverload,
+                Operator(Negate),
+                OpenParen,
+                Identifier(&"V"),
+                ClosedParen
+            ]
+        );
+
+        input = " def binary&(LHS RHS) ";
+        tokens = input.lex();
+
+        assert_eq!(
+            tokens.collect::<Vec<Token>>(),
+            vec![
+                FuncDef,
+                BinaryOverload,
+                Operator(And),
+                OpenParen,
+                Identifier(&"LHS"),
+                Identifier(&"RHS"),
+                ClosedParen
             ]
         );
     }

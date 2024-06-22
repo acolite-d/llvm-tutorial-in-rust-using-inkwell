@@ -9,17 +9,28 @@ use inkwell::module::{Linkage, Module};
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 use inkwell::types::BasicMetadataTypeEnum;
-use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FloatMathValue};
-use inkwell::OptimizationLevel;
+use inkwell::values::{AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue};
 use inkwell::FloatPredicate;
+use inkwell::OptimizationLevel;
 use thiserror::Error;
 
 use crate::cli::OptLevel;
-use crate::frontend::ast::{ASTExpr, Function, Prototype};
-use crate::frontend::lexer::Ops;
+use crate::frontend::{
+    lexer::Ops,
+    ast::{ASTExpr, Function, Prototype}
+};
 
 type IRGenResult<'ir, 'src> = Result<AnyValueEnum<'ir>, BackendError<'src>>;
 type TopLevelSignature = unsafe extern "C" fn() -> f64;
+
+macro_rules! to_llvm_float {
+    ($context:expr, $int_val:expr) => {
+        $context
+            .builder
+            .build_unsigned_int_to_float($int_val, $context.context.f64_type(), &"booltmp")
+            .expect("FATAL: LLVM failed to convert int to float")
+    };
+}
 
 // Possible errors that might result when generating/JIT'ing
 // LLVM IR
@@ -32,7 +43,7 @@ pub enum BackendError<'src> {
     UndefinedFunction(&'src str),
 
     #[error("Function {0} defined twice")]
-    MultipleFunctionDefs(&'src str),
+    MultipleFunctionDefs(String),
 
     #[error("Incorrect number of arguments passed to {func_name}, expected {param_cnt}")]
     IncorrectNumberOfArgs {
@@ -41,7 +52,10 @@ pub enum BackendError<'src> {
     },
 
     #[error("LLVM failed to verify function {0}")]
-    FailedToVerifyFunc(&'src str),
+    FailedToVerifyFunc(String),
+
+    #[error("Undefined operator used: {0:?}")]
+    UndefinedOperator(Ops),
 
     #[error("Failed to JIT top level function expression!")]
     FailedToJIT,
@@ -191,6 +205,26 @@ where
                 }
             }
 
+            // Unary Expressions, all fall into the category of overloaded operators
+            UnaryExpr { op, operand } => {
+                let fn_name = format!("unary{}", op.as_str());
+                
+                if let Some(unary_overload_fn) = context.module.get_function(&fn_name) {
+                    let operand_genval = operand.codegen(context).map(|anyval| {
+                        BasicMetadataValueEnum::FloatValue(anyval.into_float_value())
+                    })?;
+
+                    let unary_op_call = context
+                        .builder
+                        .build_call(unary_overload_fn, &[operand_genval], "unarytmp")
+                        .expect("FATAL: LLVM failed to build call!");
+
+                    Ok(unary_op_call.as_any_value_enum())
+                } else {
+                    Err(BackendError::UndefinedOperator(*op))
+                }
+            }
+
             // Generate the left and right code first, then build the correct
             // instruction depending on the operator.
             BinaryExpr { op, left, right } => {
@@ -198,78 +232,127 @@ where
 
                 let right_genval = right.codegen(context).map(AnyValueEnum::into_float_value)?;
 
-                let resulting_value = match *op {
+                match *op {
                     Ops::Plus => {
-                        context
+                        let add = context
                             .builder
                             .build_float_add(left_genval, right_genval, &"addtmp")
+                            .unwrap();
+
+                        Ok(add.as_any_value_enum())
                     }
 
                     Ops::Minus => {
-                        context
+                        let sub = context
                             .builder
                             .build_float_sub(left_genval, right_genval, &"subtmp")
+                            .unwrap();
+
+                        Ok(sub.as_any_value_enum())
                     }
 
                     Ops::Mult => {
-                        context
+                        let mult = context
                             .builder
                             .build_float_mul(left_genval, right_genval, &"multmp")
+                            .unwrap();
+
+                        Ok(mult.as_any_value_enum())
                     }
 
                     Ops::Div => {
-                        context
+                        let div = context
                             .builder
                             .build_float_div(left_genval, right_genval, &"divtmp")
-                    }
-                    
-                    // For the comparison operators, map() a conversion back to float, Kaleidoscope only works with floating point nums!
-                    Ops::Eq => {
-                        let cmp_int_val = context
-                            .builder
-                            .build_float_compare(FloatPredicate::OEQ, left_genval, right_genval, &"eqtmp")
                             .unwrap();
 
-                        context.builder.build_unsigned_int_to_float(
-                            cmp_int_val, context.context.f64_type(), &"booltmp"
-                        )
+                        Ok(div.as_any_value_enum())
+                    }
+
+                    // For the comparison operators, map() a conversion back to float, Kaleidoscope only works with floating point nums!
+                    Ops::Eq => {
+                        let cmp = context
+                            .builder
+                            .build_float_compare(
+                                FloatPredicate::OEQ,
+                                left_genval,
+                                right_genval,
+                                &"eqtmp",
+                            )
+                            .map(|int_val| to_llvm_float!(context, int_val))
+                            .unwrap();
+
+                        Ok(cmp.as_any_value_enum())
                     }
 
                     Ops::Neq => {
-                        let cmp_int_val = context
+                        let cmp = context
                             .builder
-                            .build_float_compare(FloatPredicate::ONE, left_genval, right_genval, &"neqtmp")
+                            .build_float_compare(
+                                FloatPredicate::ONE,
+                                left_genval,
+                                right_genval,
+                                &"neqtmp",
+                            )
+                            .map(|int_val| to_llvm_float!(context, int_val))
                             .unwrap();
 
-                        context.builder.build_unsigned_int_to_float(
-                            cmp_int_val, context.context.f64_type(), &"booltmp"
-                        )
+                        Ok(cmp.as_any_value_enum())
                     }
 
                     Ops::Gt => {
-                        let cmp_int_val = context
+                        let cmp = context
                             .builder
-                            .build_float_compare(FloatPredicate::OGT, left_genval, right_genval, &"gttmp")
+                            .build_float_compare(
+                                FloatPredicate::OGT,
+                                left_genval,
+                                right_genval,
+                                &"gttmp",
+                            )
+                            .map(|int_val| to_llvm_float!(context, int_val))
                             .unwrap();
 
-                        context.builder.build_unsigned_int_to_float(
-                            cmp_int_val, context.context.f64_type(), &"booltmp"
-                        )
+                        Ok(cmp.as_any_value_enum())
                     }
 
                     Ops::Lt => {
-                        let cmp_int_val = context
+                        let cmp = context
                             .builder
-                            .build_float_compare(FloatPredicate::OLT, left_genval, right_genval, &"lttmp")
+                            .build_float_compare(
+                                FloatPredicate::OLT,
+                                left_genval,
+                                right_genval,
+                                &"lttmp",
+                            )
+                            .map(|int_val| to_llvm_float!(context, int_val))
                             .unwrap();
 
-                        context.builder.build_unsigned_int_to_float(
-                            cmp_int_val, context.context.f64_type(), &"booltmp"
-                        )
+                        Ok(cmp.as_any_value_enum())
                     }
-                };
 
-                Ok(resulting_value.unwrap().as_any_value_enum())
+                    overloaded_op => {
+                        // First, we have to check if the operator has been defined, if not, then
+                        // we return error, because we cannot apply an operator that has not been defined
+                        // yet!
+                        let fn_name = format!("binary{}", overloaded_op.as_str());
+
+                        if let Some(binary_overload_fn) = context.module.get_function(&fn_name) {
+                            let args = [left_genval, right_genval]
+                                .into_iter()
+                                .map(|anyval| BasicMetadataValueEnum::FloatValue(anyval))
+                                .collect::<Vec<_>>();
+
+                            let overload_call = context
+                                .builder
+                                .build_call(binary_overload_fn, args.as_slice(), &"calltmp")
+                                .expect("FATAL: LLVM failed to build call!");
+
+                            Ok(overload_call.as_any_value_enum())
+                        } else {
+                            Err(BackendError::UndefinedOperator(overloaded_op))
+                        }
+                    }
+                }
             }
 
             // This one is the most complex expression to handle...
@@ -313,25 +396,33 @@ where
                 Ok(call.as_any_value_enum())
             }
 
-            IfExpr { cond, then_branch, else_branch } => {
+            IfExpr {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 let cond_codegen = cond.codegen(context)?;
 
                 let one = context.context.f64_type().const_float(1.0);
-                
-                // Compute the truth of the condition by comparing value of expression to one
-                let cond_bool = context.builder.build_float_compare(
-                    FloatPredicate::OEQ,
-                    cond_codegen.into_float_value(), 
-                    one, 
-                    &"iftemp"
-                )
-                .expect("FATAL: LLVM failed to build float compare!");
 
-                let function = context.builder.get_insert_block()
+                // Compute the truth of the condition by comparing value of expression to one
+                let cond_bool = context
+                    .builder
+                    .build_float_compare(
+                        FloatPredicate::OEQ,
+                        cond_codegen.into_float_value(),
+                        one,
+                        &"iftemp",
+                    )
+                    .expect("FATAL: LLVM failed to build float compare!");
+
+                let function = context
+                    .builder
+                    .get_insert_block()
                     .unwrap()
                     .get_parent()
                     .unwrap();
-                
+
                 // Basic blocks to be added for this branch
                 // true path - 1, not true - 2, merge - 3
                 let bbs = [&"then", &"else", &"ifcont"]
@@ -339,10 +430,11 @@ where
                     .map(|bb_name| context.context.append_basic_block(function, bb_name))
                     .collect::<Vec<BasicBlock<'ctx>>>();
 
-                let _llvm_br_insn = context.builder.build_conditional_branch(
-                    cond_bool, bbs[0], bbs[1]
-                ).expect("FATAL: LLVM failed to build br instruction!");
-                
+                let _llvm_br_insn = context
+                    .builder
+                    .build_conditional_branch(cond_bool, bbs[0], bbs[1])
+                    .expect("FATAL: LLVM failed to build br instruction!");
+
                 // IMPORTANT: Be sure you set the builder cursor to the appropriate block
                 // before calling codegen() methods on then and else expressions, otherwise
                 // we would generate code in wrong basic block and mess everything up.
@@ -350,16 +442,23 @@ where
                 let then_v = then_branch.codegen(context)?;
 
                 // Don't forget to branch back to merge basic block!!!
-                context.builder.build_unconditional_branch(bbs[2]).expect("FATAL: LLVM failed to build branch!");
+                context
+                    .builder
+                    .build_unconditional_branch(bbs[2])
+                    .expect("FATAL: LLVM failed to build branch!");
 
                 context.builder.position_at_end(bbs[1]);
                 let else_v = else_branch.codegen(context)?;
-                context.builder.build_unconditional_branch(bbs[2]).expect("FATAL: LLVM failed to build branch!");
+                context
+                    .builder
+                    .build_unconditional_branch(bbs[2])
+                    .expect("FATAL: LLVM failed to build branch!");
 
                 context.builder.position_at_end(bbs[2]);
-                let phi_node = context.builder.build_phi(
-                    context.context.f64_type(), &"iftmp"
-                ).expect("LLVM failed to create PHI!");
+                let phi_node = context
+                    .builder
+                    .build_phi(context.context.f64_type(), &"iftmp")
+                    .expect("LLVM failed to create PHI!");
 
                 phi_node.add_incoming(&[
                     (&then_v.into_float_value() as &dyn BasicValue<'ctx>, bbs[0]),
@@ -369,9 +468,14 @@ where
                 Ok(phi_node.as_any_value_enum())
             }
 
-            ForLoopExpr { varname, start, end, step, body } => {
+            ForLoopExpr {
+                varname,
+                start,
+                end,
+                step,
+                body,
+            } => {
                 let start_genval = start.codegen(context)?;
-
 
                 let preheader_bb = context.builder.get_insert_block().unwrap();
                 let function = preheader_bb.get_parent().unwrap();
@@ -379,68 +483,91 @@ where
                 let loop_bb = context.context.append_basic_block(function, &"loop");
 
                 context.builder.position_at_end(preheader_bb);
-                context.builder.build_unconditional_branch(loop_bb)
+                context
+                    .builder
+                    .build_unconditional_branch(loop_bb)
                     .expect("FATAL: LLVM failed to build branch!");
 
                 context.builder.position_at_end(loop_bb);
 
-                let loop_phi_var = context.builder.build_phi(context.context.f64_type(), varname)
+                let loop_phi_var = context
+                    .builder
+                    .build_phi(context.context.f64_type(), varname)
                     .expect("FATAL: LLVM failed to create PHI!");
 
-                loop_phi_var.add_incoming(&[
-                    (&start_genval.into_float_value() as &dyn BasicValue<'ctx>, preheader_bb)
-                ]);
+                loop_phi_var.add_incoming(&[(
+                    &start_genval.into_float_value() as &dyn BasicValue<'ctx>,
+                    preheader_bb,
+                )]);
 
                 let shadowed_var = context.sym_table.borrow().get(*varname).copied();
-                context.sym_table.borrow_mut()
+                context
+                    .sym_table
+                    .borrow_mut()
                     .insert(varname.to_string(), loop_phi_var.as_any_value_enum());
 
                 body.codegen(context)?;
-                
+
                 let step_genval = {
                     if let Some(step_expr) = step {
                         step_expr.codegen(context)?
                     } else {
-                        context.context.f64_type().const_float(1.0).as_any_value_enum()
+                        context
+                            .context
+                            .f64_type()
+                            .const_float(1.0)
+                            .as_any_value_enum()
                     }
                 };
 
-                let next_var = context.builder.build_float_add(
-                    loop_phi_var.as_basic_value().into_float_value(), 
-                    step_genval.into_float_value(), 
-                    &"nextvar"
-                ).unwrap();
+                let next_var = context
+                    .builder
+                    .build_float_add(
+                        loop_phi_var.as_basic_value().into_float_value(),
+                        step_genval.into_float_value(),
+                        &"nextvar",
+                    )
+                    .unwrap();
 
                 let end_cond = end.codegen(context)?;
 
-                let cmp_val = context.builder.build_float_compare(
-                    FloatPredicate::ONE, 
-                    end_cond.into_float_value(), 
-                    context.context.f64_type().const_float(0.0), 
-                    &"loopcond"
-                ).expect("FATAL: LLVM failed to build comparison instruction!");
+                let cmp_val = context
+                    .builder
+                    .build_float_compare(
+                        FloatPredicate::ONE,
+                        end_cond.into_float_value(),
+                        context.context.f64_type().const_float(0.0),
+                        &"loopcond",
+                    )
+                    .expect("FATAL: LLVM failed to build comparison instruction!");
 
                 let afterloop_bb = context.context.append_basic_block(function, "afterloop");
 
                 context.builder.position_at_end(loop_bb);
 
-                context.builder.build_conditional_branch(cmp_val, loop_bb, afterloop_bb).unwrap();
+                context
+                    .builder
+                    .build_conditional_branch(cmp_val, loop_bb, afterloop_bb)
+                    .unwrap();
 
                 context.builder.position_at_end(afterloop_bb);
 
-                loop_phi_var.add_incoming(&[
-                    (&next_var as &dyn BasicValue<'ctx>, afterloop_bb)
-                ]);
+                loop_phi_var.add_incoming(&[(&next_var as &dyn BasicValue<'ctx>, afterloop_bb)]);
 
                 if let Some(variable) = shadowed_var {
-                    context.sym_table.borrow_mut().insert(varname.to_string(), variable);
+                    context
+                        .sym_table
+                        .borrow_mut()
+                        .insert(varname.to_string(), variable);
                 } else {
                     context.sym_table.borrow_mut().remove(*varname);
                 }
-                
-                Ok(
-                    context.context.f64_type().const_float(0.0).as_any_value_enum()
-                )
+
+                Ok(context
+                    .context
+                    .f64_type()
+                    .const_float(0.0)
+                    .as_any_value_enum())
             }
         }
     }
@@ -453,8 +580,12 @@ where
     'ctx: 'ir,
 {
     fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
-        let param_types =
-            vec![BasicMetadataTypeEnum::FloatType(context.context.f64_type()); self.args.len()];
+        use Prototype::*;
+
+        let fn_name = self.get_name();
+
+        let param_types 
+            = vec![BasicMetadataTypeEnum::FloatType(context.context.f64_type()); self.get_num_params()];
 
         let fn_type = context
             .context
@@ -463,12 +594,26 @@ where
 
         let fn_val = context
             .module
-            .add_function(&self.name, fn_type, Some(Linkage::External));
+            .add_function(&fn_name, fn_type, Some(Linkage::External));
 
-        // Set the names of params so the body expression can have resolution
-        // to the names of the parameters of function!
-        for (idx, param) in fn_val.get_params().iter().enumerate() {
-            param.set_name(&self.args[idx])
+        match self {
+            FunctionProto { args, .. } => {
+                // Set the names of params so the body expression can have resolution
+                // to the names of the parameters of function!
+                for (idx, param) in fn_val.get_params().iter().enumerate() {
+                    param.set_name(&args[idx])
+                }
+            }
+
+            OverloadedUnaryOpProto { arg, .. } => {
+                fn_val.get_params()[0].set_name(&arg);
+            }
+
+            OverloadedBinaryOpProto { args: (lhs, rhs), precedence, .. } => {
+                let params = fn_val.get_params();
+                params[0].set_name(&lhs);
+                params[1].set_name(&rhs);
+            }
         }
 
         Ok(fn_val.as_any_value_enum())
@@ -482,7 +627,7 @@ where
     fn codegen(&self, context: &LLVMContext<'ctx>) -> IRGenResult<'ir, 'src> {
         // See if function has been defined, if not, generate prototype
         // to get the LLVM function value.
-        let fn_val = match context.module.get_function(&self.proto.name) {
+        let fn_val = match context.module.get_function(&self.proto.get_name()) {
             Some(fn_val) => fn_val,
             None => self.proto.codegen(context)?.into_function_value(),
         };
@@ -490,7 +635,7 @@ where
         // To make sure we aren't defining functions twice, I just check if it
         // has no entry basic block, if it does, then propogate error.
         if fn_val.get_first_basic_block().is_some() {
-            return Err(BackendError::MultipleFunctionDefs(self.proto.name));
+            return Err(BackendError::MultipleFunctionDefs(self.proto.get_name()));
         }
 
         // This sets our cursor for creating instructions to the basic block
@@ -527,7 +672,7 @@ where
             .expect("FATAL: LLVM failed to build a return!");
 
         if !fn_val.verify(true) {
-            return Err(BackendError::FailedToVerifyFunc(self.proto.name));
+            return Err(BackendError::FailedToVerifyFunc(self.proto.get_name()));
         }
 
         Ok(fn_val.as_any_value_enum())

@@ -21,6 +21,10 @@ use crate::frontend::lexer::Ops;
 pub enum ASTExpr<'src> {
     NumberExpr(f64),
     VariableExpr(&'src str),
+    UnaryExpr {
+        op: Ops,
+        operand: Box<ASTExpr<'src>>,
+    },
     BinaryExpr {
         op: Ops,
         left: Box<ASTExpr<'src>>,
@@ -41,14 +45,49 @@ pub enum ASTExpr<'src> {
         end: Box<ASTExpr<'src>>,
         step: Option<Box<ASTExpr<'src>>>,
         body: Box<ASTExpr<'src>>,
-    }
+    },
 }
 
 // Prototype, mimics that off the tutorial C++ class
 #[derive(Debug, PartialEq)]
-pub struct Prototype<'src> {
-    pub name: &'src str,
-    pub args: Vec<&'src str>,
+pub enum Prototype<'src> {
+    FunctionProto {
+        name: &'src str,
+        args: Vec<&'src str>,
+    },
+    OverloadedUnaryOpProto {
+        operator: Ops,
+        arg: &'src str,
+    },
+    OverloadedBinaryOpProto {
+        operator: Ops,
+        args: (&'src str, &'src str),
+        precedence: i32,
+    },
+}
+
+use Prototype::*;
+
+impl<'src> Prototype<'src> {
+    pub fn get_name(&self) -> String {
+        match self {
+            FunctionProto { name, .. } => format!("{}", name),
+
+            OverloadedUnaryOpProto { operator, .. } => format!("unary{}", operator.as_str()),
+
+            OverloadedBinaryOpProto { operator, .. } => format!("binary{}", operator.as_str()),
+        }
+    }
+
+    pub fn get_num_params(&self) -> usize {
+        match self {
+            FunctionProto { args, .. } => args.len(),
+            
+            OverloadedUnaryOpProto { .. } => 1,
+
+            OverloadedBinaryOpProto { .. } => 2,
+        }
+    }
 }
 
 // Function, mimics that off the tutorial C++ class

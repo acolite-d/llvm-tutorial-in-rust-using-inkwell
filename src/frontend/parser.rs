@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
 
+use mut_static::MutStatic;
 use thiserror::Error;
 
 use crate::frontend::{
     ast::*,
-    lexer::{Ops, Token},
+    lexer::{Token, Ops},
 };
 
 // One of the few global variables I will use here, where the
@@ -13,7 +14,7 @@ use crate::frontend::{
 // to their precedence, used in binorph parsing. In the C++
 // tutorial, this variable is called "BinopPrecedence"
 lazy_static! {
-    static ref OP_PRECEDENCE: HashMap<Ops, i32> = {
+    pub static ref OP_PRECEDENCE: MutStatic<HashMap<Ops, i32>> = {
         let mut map = HashMap::new();
         map.insert(Ops::Plus, 20);
         map.insert(Ops::Minus, 20);
@@ -23,7 +24,7 @@ lazy_static! {
         map.insert(Ops::Neq, 50);
         map.insert(Ops::Gt, 50);
         map.insert(Ops::Lt, 50);
-        map
+        map.into()
     };
 }
 
@@ -39,6 +40,12 @@ pub enum ParserError<'src> {
 
     #[error("Expected token: {0:?}")]
     ExpectedToken(&'static str),
+
+    #[error("Unary operator signatures need one argument")]
+    BadOverloadedUnaryOp,
+
+    #[error("Binary operator signatures require two arguments & positive number for precedence")]
+    BadOverloadedBinaryOp,
 }
 
 /// external ::= 'extern' prototype
@@ -46,7 +53,7 @@ pub fn parse_extern<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> Result<Box<Prototype<'src>>, ParserError<'src>> {
     // Swallow the 'extern' keyword, parse as prototype
-    let _keyword = tokens.next();
+    let _extern = tokens.next();
     parse_prototype(tokens)
 }
 
@@ -55,28 +62,90 @@ pub fn parse_extern<'src>(
 pub fn parse_prototype<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> Result<Box<Prototype<'src>>, ParserError<'src>> {
-    let Some(Token::Identifier(name)) = tokens.next() else {
-        panic!("Should only call this function when expecting identifier!")
-    };
+    match tokens.next() {
+        Some(Token::Identifier(name)) => {
+            let _ = tokens
+                .next_if(|t| matches!(t, Token::OpenParen))
+                .ok_or(ParserError::ExpectedToken(&"("))?;
 
-    tokens
-        .next()
-        .filter(|t| matches!(t, Token::OpenParen))
-        .ok_or(ParserError::ExpectedToken(&"("))?;
+            let mut args = vec![];
 
-    let mut args = vec![];
+            while let Some(Token::Identifier(s)) = tokens.peek() {
+                args.push(*s);
+                let _ = tokens.next();
+            }
 
-    while let Some(Token::Identifier(s)) = tokens.peek() {
-        args.push(*s);
-        let _ = tokens.next();
+            let _ = tokens
+                .next_if(|t| matches!(t, Token::ClosedParen))
+                .ok_or(ParserError::ExpectedToken(&")"))?;
+
+            Ok(Box::new(Prototype::FunctionProto { name, args }))
+        }
+
+        Some(Token::UnaryOverload) => {
+            let Some(Token::Operator(operator)) = tokens.next() else {
+                return Err(ParserError::ExpectedToken("!/&/|/^/:"));
+            };
+
+            // swallow open parenthesis
+            let _ = tokens
+                .next_if(|t| matches!(t, Token::OpenParen))
+                .ok_or(ParserError::ExpectedToken(&"("))?;
+
+            let Some(Token::Identifier(arg)) = tokens.next() else {
+                return Err(ParserError::BadOverloadedUnaryOp);
+            };
+
+            // swallow closed parenthesis
+            let _ = tokens
+                .next_if(|t| matches!(t, Token::ClosedParen))
+                .ok_or(ParserError::ExpectedToken(&")"))?;
+
+            Ok(Box::new(Prototype::OverloadedUnaryOpProto {
+                operator,
+                arg,
+            }))
+        }
+
+        Some(Token::BinaryOverload) => {
+            let Some(Token::Operator(operator)) = tokens.next() else {
+                return Err(ParserError::ExpectedToken("!/&/|/^/:"));
+            };
+
+            let Some(Token::Number(precedence)) = tokens.next() else {
+                return Err(ParserError::BadOverloadedBinaryOp);
+            };
+
+            let mut precedence_map = OP_PRECEDENCE.write().unwrap();
+
+            precedence_map.insert(operator, precedence.ceil() as i32);
+
+            // swallow open parenthesis
+            let _ = tokens
+                .next_if(|t| matches!(t, Token::OpenParen))
+                .ok_or(ParserError::ExpectedToken(&"("))?;
+
+            let (Some(Token::Identifier(lhs)), Some(Token::Identifier(rhs))) =
+                (tokens.next(), tokens.next())
+            else {
+                return Err(ParserError::BadOverloadedUnaryOp);
+            };
+
+            // swallow closed parenthesis
+            let _ = tokens
+                .next_if(|t| matches!(t, Token::ClosedParen))
+                .ok_or(ParserError::ExpectedToken(&")"))?;
+
+            Ok(Box::new(Prototype::OverloadedBinaryOpProto {
+                operator,
+                precedence: precedence.ceil() as i32,
+                args: (lhs, rhs),
+            }))
+        }
+
+        Some(unexpected) => Err(ParserError::UnexpectedToken(unexpected)),
+        None => Err(ParserError::UnexpectedEOI),
     }
-
-    let _closed_paren = tokens
-        .next()
-        .filter(|t| matches!(t, Token::ClosedParen))
-        .ok_or(ParserError::ExpectedToken(&")"))?;
-
-    Ok(Box::new(Prototype { name, args }))
 }
 
 /// definition ::= 'def' prototype expression
@@ -99,7 +168,7 @@ pub fn parse_top_level_expr<'src>(
 ) -> Result<Box<Function<'src>>, ParserError<'src>> {
     let expr = parse_expression(tokens)?;
 
-    let proto = Box::new(Prototype {
+    let proto = Box::new(Prototype::FunctionProto {
         name: &"__anonymous_expr",
         args: vec![],
     });
@@ -134,9 +203,27 @@ fn parse_primary<'src>(
     }
 }
 
+/// unary
+///   ::= primary
+///   ::= '!' unary
+fn parse_unary<'src>(
+    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
+) -> ExprParseResult<'src> {
+
+    if let Some(Token::Operator(op)) = tokens
+        .next_if(|t| matches!(t, Token::Operator(_)))
+    {
+        let operand = parse_unary(tokens)?;
+
+        Ok(Box::new(ASTExpr::UnaryExpr { op, operand }))
+    } else {
+        parse_primary(tokens)
+    }
+}
+
 /// forexpr ::= 'for' identifier '=' expression ',' expression (',' expr)? 'in' expression
 fn parse_for_loop_expr<'src>(
-    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>
+    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
     let Some(Token::For) = tokens.next() else {
         return Err(ParserError::ExpectedToken(&"for"));
@@ -160,7 +247,7 @@ fn parse_for_loop_expr<'src>(
 
     let mut step: Option<Box<ASTExpr>> = None;
     if let Some(Token::Comma) = tokens.next_if(|token| matches!(token, Token::Comma)) {
-        step = Some(parse_expression(tokens)?); 
+        step = Some(parse_expression(tokens)?);
     }
 
     let Some(Token::In) = tokens.next() else {
@@ -169,19 +256,18 @@ fn parse_for_loop_expr<'src>(
 
     let body = parse_expression(tokens)?;
 
-    Ok(Box::new(ASTExpr::ForLoopExpr { 
-        varname, 
+    Ok(Box::new(ASTExpr::ForLoopExpr {
+        varname,
         start,
         end,
         step,
-        body
+        body,
     }))
 }
 
-
 /// ifexpr ::= 'if' expression 'then' expression 'else' expression
 fn parse_if_expr<'src>(
-    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>
+    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
     let Some(Token::If) = tokens.next() else {
         return Err(ParserError::ExpectedToken(&"if"));
@@ -201,13 +287,12 @@ fn parse_if_expr<'src>(
 
     let else_branch = parse_expression(tokens)?;
 
-    Ok(Box::new(ASTExpr::IfExpr { 
-        cond, 
-        then_branch, 
-        else_branch
+    Ok(Box::new(ASTExpr::IfExpr {
+        cond,
+        then_branch,
+        else_branch,
     }))
 }
-
 
 /// numberexpr ::= number
 fn parse_number_expr<'src>(
@@ -283,7 +368,10 @@ fn parse_paren_expr<'src>(
 fn parse_expression<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
-    let lhs = parse_primary(tokens)?;
+
+    // Be sure we handle the case where either the lhs has unary
+    // operator, or rhs, or both.
+    let lhs = parse_unary(tokens)?;
 
     parse_binop_rhs(tokens, lhs, 0)
 }
@@ -293,7 +381,7 @@ fn parse_expression<'src>(
 // default to -1. Tutorial names this GetTokPrecedence
 fn get_token_precedence(token: Token) -> i32 {
     if let Token::Operator(operator) = token {
-        OP_PRECEDENCE[&operator]
+        OP_PRECEDENCE.read().unwrap()[&operator]
     } else {
         -1
     }
@@ -320,7 +408,9 @@ fn parse_binop_rhs<'src>(
             panic!("FATAL: misuse of of this function in recursive descent!")
         };
 
-        let mut rhs = parse_primary(tokens)?;
+        // In chapter 6, we changed this from parse_primary to parse_unary
+        // handle the lhs case where it might be attached to unary operator
+        let mut rhs = parse_unary(tokens)?;
 
         let next_prec = match tokens.peek().copied() {
             Some(token) => get_token_precedence(token),
@@ -494,7 +584,7 @@ mod tests {
         assert_eq!(
             func_ast,
             Ok(Box::new(Function {
-                proto: Box::new(Prototype {
+                proto: Box::new(Prototype::FunctionProto {
                     name: &"func1",
                     args: vec![&"x", &"y"]
                 }),
@@ -512,7 +602,7 @@ mod tests {
         assert_eq!(
             func_ast,
             Ok(Box::new(Function {
-                proto: Box::new(Prototype {
+                proto: Box::new(Prototype::FunctionProto {
                     name: &"alwaysReturnOne",
                     args: vec![]
                 }),
@@ -528,7 +618,7 @@ mod tests {
         assert_eq!(
             func_ast,
             Ok(Box::new(Function {
-                proto: Box::new(Prototype {
+                proto: Box::new(Prototype::FunctionProto {
                     name: &"func2",
                     args: vec![&"base", &"mid", &"upper"]
                 }),
@@ -548,31 +638,23 @@ mod tests {
     #[test]
     fn parsing_if_then_else_expressions() {
         let mut tokens = " if pred then x+1 else x-1; ".lex().peekable();
-        let if_expr    = parse_if_expr(&mut tokens);
+        let if_expr = parse_if_expr(&mut tokens);
 
         assert_eq!(
             if_expr,
-            Ok(
-                Box::new(
-                    IfExpr { 
-                        cond: Box::new(VariableExpr(&"pred")),
-                        then_branch: Box::new(
-                            BinaryExpr { 
-                                op: Plus, 
-                                left: Box::new(VariableExpr(&"x")), 
-                                right: Box::new(NumberExpr(1.0)),
-                            }
-                        ),
-                        else_branch: Box::new(
-                            BinaryExpr { 
-                                op: Minus, 
-                                left: Box::new(VariableExpr(&"x")), 
-                                right: Box::new(NumberExpr(1.0)),
-                            }
-                        )
-                    }
-                )
-            )
+            Ok(Box::new(IfExpr {
+                cond: Box::new(VariableExpr(&"pred")),
+                then_branch: Box::new(BinaryExpr {
+                    op: Plus,
+                    left: Box::new(VariableExpr(&"x")),
+                    right: Box::new(NumberExpr(1.0)),
+                }),
+                else_branch: Box::new(BinaryExpr {
+                    op: Minus,
+                    left: Box::new(VariableExpr(&"x")),
+                    right: Box::new(NumberExpr(1.0)),
+                })
+            }))
         );
     }
 }
