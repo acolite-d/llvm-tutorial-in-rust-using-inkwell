@@ -43,7 +43,11 @@ pub enum ASTExpr<'src> {
         varname: &'src str,
         start: Box<ASTExpr<'src>>,
         end: Box<ASTExpr<'src>>,
-        step: Option<Box<ASTExpr<'src>>>,
+        step: Box<ASTExpr<'src>>,
+        body: Box<ASTExpr<'src>>,
+    },
+    VarExpr {
+        var_names: Vec<(&'src str, Option<Box<ASTExpr<'src>>>)>, // var_names is a combination of variable name and (possible) initializer
         body: Box<ASTExpr<'src>>,
     },
 }
@@ -82,7 +86,7 @@ impl<'src> Prototype<'src> {
     pub fn get_num_params(&self) -> usize {
         match self {
             FunctionProto { args, .. } => args.len(),
-            
+
             OverloadedUnaryOpProto { .. } => 1,
 
             OverloadedBinaryOpProto { .. } => 2,

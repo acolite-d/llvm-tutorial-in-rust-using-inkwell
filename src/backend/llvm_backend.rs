@@ -10,7 +10,7 @@ use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::{
-    AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FunctionValue, PointerValue
+    AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FunctionValue, PointerValue,
 };
 use inkwell::FloatPredicate;
 use inkwell::OptimizationLevel;
@@ -18,8 +18,8 @@ use thiserror::Error;
 
 use crate::cli::OptLevel;
 use crate::frontend::{
+    ast::{ASTExpr, Function, Prototype},
     lexer::Ops,
-    ast::{ASTExpr, Function, Prototype}
 };
 
 type IRGenResult<'ir, 'src> = Result<AnyValueEnum<'ir>, BackendError<'src>>;
@@ -61,9 +61,6 @@ pub enum BackendError<'src> {
 
     #[error("Incorrect assignment of variable, left side must be a string name")]
     BadAssignment,
-
-    #[error("Failed to JIT top level function expression!")]
-    FailedToJIT,
 }
 
 // Our context object that we will pass to recursive calls of codegen
@@ -73,7 +70,6 @@ pub struct LLVMContext<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
-    target: Target,
     machine: TargetMachine,
     sym_table: RefCell<HashMap<String, PointerValue<'ctx>>>,
 }
@@ -101,7 +97,6 @@ impl<'ctx> LLVMContext<'ctx> {
             context,
             builder,
             module,
-            target,
             machine,
             sym_table: RefCell::new(HashMap::new()),
         }
@@ -118,11 +113,9 @@ impl<'ctx> LLVMContext<'ctx> {
     // needed for REPL so that we don't define top level twice, just delete
     // it and then define it again.
     pub fn delete_top_level_expr(&self) {
-        unsafe {
-            self.module
-                .get_function("__anonymous_expr")
-                .map(|f| f.delete())
-        };
+        self.module
+            .get_function("__anonymous_expr")
+            .map(|f| unsafe { f.delete() });
     }
 
     // Optimization passes
@@ -167,12 +160,15 @@ impl<'ctx> LLVMContext<'ctx> {
     }
 
     fn create_entry_block_alloca(
-        &self, function: FunctionValue<'ctx>, var_name: &str
+        &self,
+        function: FunctionValue<'ctx>,
+        var_name: &str,
     ) -> PointerValue<'ctx> {
         let ir_builder = self.context.create_builder();
         ir_builder.position_at_end(function.get_first_basic_block().unwrap());
 
-        let alloca_insn = ir_builder.build_alloca(self.context.f64_type(), var_name)
+        let alloca_insn = ir_builder
+            .build_alloca(self.context.f64_type(), var_name)
             .expect("FATAL: LLVM failed to build alloca instruction");
 
         alloca_insn
@@ -216,7 +212,9 @@ where
             // if it doesn't return error, otherwise, fetch the LLVM Value for that variable
             VariableExpr(varname) => {
                 if let Some(pointer_val) = context.sym_table.borrow().get(*varname) {
-                    let load_insn = context.builder.build_load(context.context.f64_type(), *pointer_val, &varname)
+                    let load_insn = context
+                        .builder
+                        .build_load(context.context.f64_type(), *pointer_val, &varname)
                         .expect("FATAL: LLVM failed to build load instruction");
 
                     Ok(load_insn.as_any_value_enum())
@@ -228,7 +226,7 @@ where
             // Unary Expressions, all fall into the category of overloaded operators
             UnaryExpr { op, operand } => {
                 let fn_name = format!("unary{}", op.as_str());
-                
+
                 if let Some(unary_overload_fn) = context.module.get_function(&fn_name) {
                     let operand_genval = operand.codegen(context).map(|anyval| {
                         BasicMetadataValueEnum::FloatValue(anyval.into_float_value())
@@ -253,12 +251,12 @@ where
                 if let Ops::Assign = op {
                     // Make sure left hand side is a variable name
                     let ptr_val = match **left {
-                        ASTExpr::VariableExpr(name) => {
-                            context.sym_table.borrow()
-                                .get(name)
-                                .copied()
-                                .ok_or(BackendError::UnknownVariable(name))
-                        }
+                        ASTExpr::VariableExpr(name) => context
+                            .sym_table
+                            .borrow()
+                            .get(name)
+                            .copied()
+                            .ok_or(BackendError::UnknownVariable(name)),
 
                         _ => Err(BackendError::BadAssignment),
                     }?;
@@ -266,7 +264,9 @@ where
                     // Generate the right hand side, store its value in the variable, completeing assignment
                     let right_genval = right.codegen(context)?;
 
-                    let _store = context.builder.build_store(ptr_val, right_genval.into_float_value())
+                    context
+                        .builder
+                        .build_store(ptr_val, right_genval.into_float_value())
                         .expect("FATAL: LLVM failed to build store instruction");
 
                     // Like C assignments, the right hand side is returned
@@ -274,10 +274,10 @@ where
                     // I personally hate this, but following the tutorial
                     Ok(right_genval.as_any_value_enum())
                 } else {
-
                     // Generate both left hand and right hand sides of the expression first
                     let left_genval = left.codegen(context).map(AnyValueEnum::into_float_value)?;
-                    let right_genval = right.codegen(context).map(AnyValueEnum::into_float_value)?;
+                    let right_genval =
+                        right.codegen(context).map(AnyValueEnum::into_float_value)?;
 
                     // Apply the operator by the match statement, creating an add, subtract,... instruction
                     match *op {
@@ -286,37 +286,37 @@ where
                                 .builder
                                 .build_float_add(left_genval, right_genval, &"addtmp")
                                 .unwrap();
-    
+
                             Ok(add.as_any_value_enum())
                         }
-    
+
                         Ops::Minus => {
                             let sub = context
                                 .builder
                                 .build_float_sub(left_genval, right_genval, &"subtmp")
                                 .unwrap();
-    
+
                             Ok(sub.as_any_value_enum())
                         }
-    
+
                         Ops::Mult => {
                             let mult = context
                                 .builder
                                 .build_float_mul(left_genval, right_genval, &"multmp")
                                 .unwrap();
-    
+
                             Ok(mult.as_any_value_enum())
                         }
-    
+
                         Ops::Div => {
                             let div = context
                                 .builder
                                 .build_float_div(left_genval, right_genval, &"divtmp")
                                 .unwrap();
-    
+
                             Ok(div.as_any_value_enum())
                         }
-    
+
                         // For the comparison operators, map() a conversion back to float, Kaleidoscope only works with floating point nums!
                         Ops::Eq => {
                             let cmp = context
@@ -329,10 +329,10 @@ where
                                 )
                                 .map(|int_val| to_llvm_float!(context, int_val))
                                 .unwrap();
-    
+
                             Ok(cmp.as_any_value_enum())
                         }
-    
+
                         Ops::Neq => {
                             let cmp = context
                                 .builder
@@ -344,10 +344,10 @@ where
                                 )
                                 .map(|int_val| to_llvm_float!(context, int_val))
                                 .unwrap();
-    
+
                             Ok(cmp.as_any_value_enum())
                         }
-    
+
                         Ops::Gt => {
                             let cmp = context
                                 .builder
@@ -359,10 +359,10 @@ where
                                 )
                                 .map(|int_val| to_llvm_float!(context, int_val))
                                 .unwrap();
-    
+
                             Ok(cmp.as_any_value_enum())
                         }
-    
+
                         Ops::Lt => {
                             let cmp = context
                                 .builder
@@ -374,27 +374,28 @@ where
                                 )
                                 .map(|int_val| to_llvm_float!(context, int_val))
                                 .unwrap();
-    
+
                             Ok(cmp.as_any_value_enum())
                         }
-    
+
                         overloaded_op => {
                             // First, we have to check if the operator has been defined, if not, then
                             // we return error, because we cannot apply an operator that has not been defined
                             // yet!
                             let fn_name = format!("binary{}", overloaded_op.as_str());
-    
-                            if let Some(binary_overload_fn) = context.module.get_function(&fn_name) {
+
+                            if let Some(binary_overload_fn) = context.module.get_function(&fn_name)
+                            {
                                 let args = [left_genval, right_genval]
                                     .into_iter()
                                     .map(|anyval| BasicMetadataValueEnum::FloatValue(anyval))
                                     .collect::<Vec<_>>();
-    
+
                                 let overload_call = context
                                     .builder
                                     .build_call(binary_overload_fn, args.as_slice(), &"calltmp")
                                     .expect("FATAL: LLVM failed to build call!");
-    
+
                                 Ok(overload_call.as_any_value_enum())
                             } else {
                                 Err(BackendError::UndefinedOperator(overloaded_op))
@@ -479,7 +480,7 @@ where
                     .map(|bb_name| context.context.append_basic_block(function, bb_name))
                     .collect::<Vec<BasicBlock<'ctx>>>();
 
-                let _llvm_br_insn = context
+                context
                     .builder
                     .build_conditional_branch(cond_bool, bbs[0], bbs[1])
                     .expect("FATAL: LLVM failed to build br instruction!");
@@ -543,23 +544,24 @@ where
                 step,
                 body,
             } => {
-
-                let preheader_bb = context.builder.get_insert_block().unwrap();
-                let function = preheader_bb.get_parent().unwrap();
+                let preloop_bb = context.builder.get_insert_block().unwrap();
+                let function = preloop_bb.get_parent().unwrap();
 
                 // Create alloca for loop variable at entry block of function before start expression
                 let loop_var_ptr = context.create_entry_block_alloca(function, varname);
+
                 let start_genval = start.codegen(context)?;
 
                 // Store start expression into stack pointer of loop variable
-                context.builder.build_store(loop_var_ptr, start_genval.into_float_value())
+                context
+                    .builder
+                    .build_store(loop_var_ptr, start_genval.into_float_value())
                     .expect("FATAL: LLVM failed to build store instruction");
-                
+
                 // Build the main loop basic block then a unconditional fall through branch
                 // at header bb to make sure we fall into loop
                 let loop_bb = context.context.append_basic_block(function, &"loop");
-
-                context.builder.position_at_end(preheader_bb);
+                
                 context
                     .builder
                     .build_unconditional_branch(loop_bb)
@@ -571,25 +573,17 @@ where
                 // If there is a collision with the loop variable an one outside loop, shadow the
                 // outer scope variable in favor of the loop variable, restore later below
                 let shadowed_var = context.sym_table.borrow().get(*varname).copied();
-                context.sym_table.borrow_mut().insert(varname.to_string(), loop_var_ptr);
+                context
+                    .sym_table
+                    .borrow_mut()
+                    .insert(varname.to_string(), loop_var_ptr);
 
                 // Generate the body of the loop in the loop basic block
                 body.codegen(context)?;
 
-                // Step values are optional for this language. In the absence of one,
-                // Generate a basic step of +1.0 for each iteration. This is generated
-                // After the body so that the loop eventually stops after final step
-                let step_genval = {
-                    if let Some(step_expr) = step {
-                        step_expr.codegen(context)?
-                    } else {
-                        context
-                            .context
-                            .f64_type()
-                            .const_float(1.0)
-                            .as_any_value_enum()
-                    }
-                };
+                // Generate the step, the parser will supply the default of 1.0 if one
+                // was not given, otherwise we generate user defined
+                let step_genval = step.codegen(context)?;
 
                 // The end condition check, generated after step
                 let end_codegen = end.codegen(context)?;
@@ -598,31 +592,31 @@ where
                 // then store it back to the stack
                 let cur_val = context
                     .builder
-                    .build_load(
-                        context.context.f64_type(), 
-                        loop_var_ptr, 
-                        &varname
-                    )
+                    .build_load(context.context.f64_type(), loop_var_ptr, &varname)
                     .map(|v| v.into_float_value())
                     .expect("FATAL: LLVM failed to build load instruction");
 
-                let _step_val = context.builder.build_float_add(
-                    cur_val, step_genval.into_float_value(), &"nextvar"
-                ).unwrap();
+                let next_val = context
+                    .builder
+                    .build_float_add(cur_val, step_genval.into_float_value(), &"nextvar")
+                    .unwrap();
 
-                context.builder.build_store(loop_var_ptr, step_genval.into_float_value());
+                context
+                    .builder
+                    .build_store(loop_var_ptr, next_val)
+                    .expect("FATAL: LLVM failed to build store instruction");
 
                 // Build the comparison, which will be the check to see if we branch out of the
                 // loop or continue
                 let cmp_val = context
                     .builder
                     .build_float_compare(
-                        FloatPredicate::ONE,
+                        FloatPredicate::OEQ,
                         end_codegen.into_float_value(),
-                        context.context.f64_type().const_float(0.0),
+                        context.context.f64_type().const_float(1.0),
                         &"loopcond",
                     )
-                    .expect("FATAL: LLVM failed to build comparison instruction!");
+                    .expect("FATAL: LLVM failed to build comparison instruction");
 
                 let afterloop_bb = context.context.append_basic_block(function, "afterloop");
 
@@ -634,7 +628,7 @@ where
                     .unwrap();
 
                 context.builder.position_at_end(afterloop_bb);
-                
+
                 // Above we collected a possible shadowed variable from the map
                 // of our variable symbols. If there was something that was shadowed
                 // restore it here, else, clear the loop variable from our scope
@@ -647,11 +641,70 @@ where
                     context.sym_table.borrow_mut().remove(*varname);
                 }
 
-                Ok(context
-                    .context
-                    .f64_type()
-                    .const_float(0.0)
-                    .as_any_value_enum())
+                Ok(context.context.f64_type().const_float(0.0).as_any_value_enum())
+            }
+
+            VarExpr { var_names, body } => {
+                let mut shadowed_vars: Vec<(&str, PointerValue<'ctx>)> = vec![];
+
+                let function = context
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                // For each variable in the list, attempt to emit initializer code (if there was one given)
+                // else we give the default initializer to zero so that LLVM pointer value does not
+                // point to unitialized stack memory
+                for (ref var_name, init) in var_names.iter() {
+                    let var_init_codegen = init.as_ref().map_or_else(
+                        || Ok(context.context.f64_type().const_zero()),
+                        |initializer| {
+                            initializer
+                                .codegen(context)
+                                .map(AnyValueEnum::into_float_value)
+                        },
+                    )?;
+
+                    // Allocate stack for variable, get pointer value
+                    let var_ptr = context.create_entry_block_alloca(function, var_name);
+
+                    // Store the initializer generated value, or the default of 0.0
+                    let _store = context
+                        .builder
+                        .build_store(var_ptr, var_init_codegen)
+                        .expect("FATAL: LLVM failed to build store instruction");
+
+                    // Shadow any possible variables that have same names, override outer scope with inner scope
+                    // Do this by saving the old variable pointers in shadowed_vars vec, inserting the others in place
+                    if let Some(old_var_ptr) = context.sym_table.borrow().get(*var_name).copied() {
+                        shadowed_vars.push((var_name, old_var_ptr));
+                    }
+
+                    context
+                        .sym_table
+                        .borrow_mut()
+                        .insert(var_name.to_string(), var_ptr);
+                }
+
+                // Generate the body that is scoped to these mutable variables
+                let body_codegen = body.codegen(context)?;
+
+                // Delete new bindings, we are done with them after body generation
+                var_names.iter().for_each(|(name, _)| {
+                    context.sym_table.borrow_mut().remove(*name);
+                });
+
+                // Restore old bindings, the variables we might have shadowed
+                shadowed_vars.iter().for_each(|(name, ptr_val)| {
+                    context
+                        .sym_table
+                        .borrow_mut()
+                        .insert(name.to_string(), *ptr_val);
+                });
+
+                Ok(body_codegen.as_any_value_enum())
             }
         }
     }
@@ -668,8 +721,10 @@ where
 
         let fn_name = self.get_name();
 
-        let param_types 
-            = vec![BasicMetadataTypeEnum::FloatType(context.context.f64_type()); self.get_num_params()];
+        let param_types = vec![
+            BasicMetadataTypeEnum::FloatType(context.context.f64_type());
+            self.get_num_params()
+        ];
 
         let fn_type = context
             .context
@@ -693,7 +748,9 @@ where
                 fn_val.get_params()[0].set_name(&arg);
             }
 
-            OverloadedBinaryOpProto { args: (lhs, rhs), .. } => {
+            OverloadedBinaryOpProto {
+                args: (lhs, rhs), ..
+            } => {
                 let params = fn_val.get_params();
                 params[0].set_name(&lhs);
                 params[1].set_name(&rhs);
@@ -748,14 +805,13 @@ where
             let param_ptr = context.create_entry_block_alloca(fn_val, &owned_str);
 
             // Store the value of this paramter to it's stack copy
-            let _store = context.builder.build_store(param_ptr, param)
+            let _store = context
+                .builder
+                .build_store(param_ptr, param)
                 .expect("FATAL: LLVM failed to build store instruction");
 
             // Add it to scope
-            context
-                .sym_table
-                .borrow_mut()
-                .insert(owned_str, param_ptr);
+            context.sym_table.borrow_mut().insert(owned_str, param_ptr);
         }
 
         // Generate code for the body of the function as an ASTExpr node

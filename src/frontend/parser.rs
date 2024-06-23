@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::frontend::{
     ast::*,
-    lexer::{Token, Ops},
+    lexer::{Ops, Token},
 };
 
 // One of the few global variables I will use here, where the
@@ -196,12 +196,57 @@ fn parse_primary<'src>(
 
         Some(Token::If) => parse_if_expr(tokens),
 
-        Some(Token::For) => parse_for_loop_expr(tokens),
+        Some(Token::For) => parse_for_loop_expression(tokens),
+
+        Some(Token::Var) => parse_var_expression(tokens),
 
         Some(unexpected) => Err(ParserError::UnexpectedToken(*unexpected)),
 
         None => Err(ParserError::UnexpectedEOI),
     }
+}
+
+/// varexpr ::= 'var' identifier ('=' expression)?
+//              (',' identifier ('=' expression)?)* 'in' expression
+fn parse_var_expression<'src>(
+    tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
+) -> ExprParseResult<'src> {
+    // Swallow the var keyword
+    let _ = tokens.next();
+
+    let mut var_names = vec![];
+
+    // Loop over the list of comma delimited variables with possible initializers
+    loop {
+        let Some(Token::Identifier(name)) = tokens.next() else {
+            return Err(ParserError::ExpectedToken("<identifier>"));
+        };
+
+        // If there is an assignment operator following, it has an initializer,
+        // parse it and add it along with name, otherwise there is no initializer
+        if let Some(Token::Operator(Ops::Assign)) = tokens.peek() {
+            let _assign = tokens.next();
+            let init = parse_expression(tokens)?;
+
+            var_names.push((name, Some(init)));
+        } else {
+            var_names.push((name, None))
+        }
+
+        // If we have a comma following, we loop, otherwise, we break out of loop
+        if let None = tokens.next_if(|t| matches!(t, Token::Comma)) {
+            break;
+        }
+    }
+
+    // Check for the "in" keyword, should be there before body
+    tokens
+        .next_if(|t| matches!(t, Token::In))
+        .ok_or(ParserError::ExpectedToken(&"in"))?;
+
+    let body = parse_expression(tokens)?;
+
+    Ok(Box::new(ASTExpr::VarExpr { var_names, body }))
 }
 
 /// unary
@@ -210,10 +255,7 @@ fn parse_primary<'src>(
 fn parse_unary<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
-
-    if let Some(Token::Operator(op)) = tokens
-        .next_if(|t| matches!(t, Token::Operator(_)))
-    {
+    if let Some(Token::Operator(op)) = tokens.next_if(|t| matches!(t, Token::Operator(_))) {
         let operand = parse_unary(tokens)?;
 
         Ok(Box::new(ASTExpr::UnaryExpr { op, operand }))
@@ -223,7 +265,7 @@ fn parse_unary<'src>(
 }
 
 /// forexpr ::= 'for' identifier '=' expression ',' expression (',' expr)? 'in' expression
-fn parse_for_loop_expr<'src>(
+fn parse_for_loop_expression<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
     let Some(Token::For) = tokens.next() else {
@@ -234,7 +276,7 @@ fn parse_for_loop_expr<'src>(
         return Err(ParserError::ExpectedToken(&"variable"));
     };
 
-    let Some(Token::Operator(Ops::Eq)) = tokens.next() else {
+    let Some(Token::Operator(Ops::Assign)) = tokens.next() else {
         return Err(ParserError::ExpectedToken(&"="));
     };
 
@@ -246,10 +288,14 @@ fn parse_for_loop_expr<'src>(
 
     let end = parse_expression(tokens)?;
 
-    let mut step: Option<Box<ASTExpr>> = None;
-    if let Some(Token::Comma) = tokens.next_if(|token| matches!(token, Token::Comma)) {
-        step = Some(parse_expression(tokens)?);
-    }
+    // Step is optional in the loop, but the absence is understood to be an increment of 1.0 per loop iteration
+    let step = {
+        if let Some(Token::Comma) = tokens.next_if(|token| matches!(token, Token::Comma)) {
+            parse_expression(tokens)?
+        } else {
+            Box::new(ASTExpr::NumberExpr(1.0))
+        }
+    };
 
     let Some(Token::In) = tokens.next() else {
         return Err(ParserError::ExpectedToken(&"in"));
@@ -369,7 +415,6 @@ fn parse_paren_expr<'src>(
 fn parse_expression<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {
-
     // Be sure we handle the case where either the lhs has unary
     // operator, or rhs, or both.
     let lhs = parse_unary(tokens)?;

@@ -27,6 +27,7 @@ pub enum Token<'src> {
     In = 14,
     UnaryOverload = 15,
     BinaryOverload = 16,
+    Var = 17,
     Unknown(&'src str) = 255,
 }
 
@@ -50,11 +51,11 @@ pub enum Ops {
     Assign = 8,
 
     // These operators are left undefined, but can be overloaded by developers
-    Or = 9, // "|"
-    And = 10, // "&"
-    Xor = 11, // "^"
+    Or = 9,      // "|"
+    And = 10,    // "&"
+    Xor = 11,    // "^"
     Negate = 12, // "!"
-    Colon = 13, // ":"
+    Colon = 13,  // ":"
 }
 
 impl Ops {
@@ -86,7 +87,7 @@ impl Ops {
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
-            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' | '<' | '>' | '!' | '|' | '&' | '^'
+            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' | '<' | '>' | '|' | '&' | '^'
             | ':' => true,
 
             _ => false,
@@ -111,6 +112,7 @@ fn tokenize(string: &str) -> Token {
         "in" => In,
         "unary" => UnaryOverload,
         "binary" => BinaryOverload,
+        "var" => Var,
 
         // Operators
         "+" => Operator(Ops::Plus),
@@ -219,8 +221,8 @@ impl<'src, I> Tokens<'src, I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Token::*;
     use Ops::*;
+    use Token::*;
 
     #[test]
     fn lexing_nums() {
