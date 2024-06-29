@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -7,7 +8,7 @@ use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
 use inkwell::module::{Linkage, Module};
 use inkwell::passes::PassBuilderOptions;
-use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
+use inkwell::targets::{CodeModel, FileType, RelocMode, Target, TargetMachine};
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::{
     AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FunctionValue, PointerValue,
@@ -120,24 +121,35 @@ impl<'ctx> LLVMContext<'ctx> {
 
     // Optimization passes
     pub fn run_passes(&self, passes: &str) {
-        let pass_options = PassBuilderOptions::create();
 
-        // Default passes
-        pass_options.set_verify_each(true);
-        pass_options.set_debug_logging(false);
-        pass_options.set_loop_interleaving(true);
-        pass_options.set_loop_vectorization(true);
-        pass_options.set_loop_slp_vectorization(true);
-        pass_options.set_loop_unrolling(true);
-        pass_options.set_forget_all_scev_in_loop_unroll(true);
-        pass_options.set_licm_mssa_opt_cap(1);
-        pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
-        pass_options.set_call_graph_profile(true);
-        pass_options.set_merge_functions(true);
+        if !passes.is_empty() {
+            let pass_options = PassBuilderOptions::create();
 
-        self.module
-            .run_passes(passes, &self.machine, pass_options)
-            .unwrap();
+            // Default passes
+            pass_options.set_verify_each(true);
+            pass_options.set_debug_logging(false);
+            pass_options.set_loop_interleaving(true);
+            pass_options.set_loop_vectorization(true);
+            pass_options.set_loop_slp_vectorization(true);
+            pass_options.set_loop_unrolling(true);
+            pass_options.set_forget_all_scev_in_loop_unroll(true);
+            pass_options.set_licm_mssa_opt_cap(1);
+            pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
+            pass_options.set_call_graph_profile(true);
+            pass_options.set_merge_functions(true);
+    
+            self.module
+                .run_passes(passes, &self.machine, pass_options)
+                .unwrap();
+        }
+    }
+
+    pub fn compile(&self, path: &Path, file_type: FileType) -> () {
+        self.machine.write_to_file(
+            &self.module, 
+            file_type, 
+            path,
+        ).expect("Failed to write object to file");
     }
 
     // JIT evalution, creates an ExecutionEngine object, JIT compiles the function,

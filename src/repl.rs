@@ -12,7 +12,7 @@ use crate::backend::llvm_backend::{LLVMCodeGen, LLVMContext};
 
 // I have two different kinds of Read-Print-Eval-Loops here. One simply runs
 // frontend of Kaleidoscope, producing AST, printing debug representation of that.
-// The other does the additional step of generating LLVM IR, and JIT compiling it.
+// The other does the additional step of generating LLVM IR, JIT compiling and running it.
 
 pub fn ast_parser_driver() {
     let mut input_buf = String::new();
@@ -91,6 +91,7 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
                     println!("Parsed a function definition.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(_ir) => {
+
                             sesh_ctx.run_passes(passes);
                             sesh_ctx.dump_module();
                         }

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{
     builder::{OsStr, PossibleValue},
     Parser, ValueEnum,
@@ -7,17 +9,34 @@ use inkwell;
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
+    /// A positional file containing Kaleidoscope code to compile to object/assembly, if not given, starts interpreter instead
+    pub file: Option<PathBuf>,
+
     /// What optimization level to pass to LLVM
     #[arg(long, value_enum, default_value = OptLevel::O2)]
     pub opt_level: OptLevel,
 
     /// Comma separated list of LLVM passes (use opt for a list, also see https://www.llvm.org/docs/Passes.html)
-    #[arg(short, long, default_value = "instcombine,reassociate,gvn,simplifycfg")]
+    #[arg(short, long, default_value = "instcombine,reassociate,gvn,simplifycfg,mem2reg")]
     pub passes: String,
 
-    /// Interpret with frontend only, output AST, only valid for interpreter use
+    /// When AOT compiling, specifies an output file to write to
+    #[arg(short, long, default_value = "a.out")]
+    pub output: PathBuf,
+
+    /// When AOT compiling, specifies the output should be assembly instead of object file
+    #[arg(short = 'S', long = "assembly")]
+    pub asm_p: bool,
+
+    /// When JIT compiling, prints out AST to stdout after every line entered into interpreter
     #[arg(long)]
-    pub use_frontend_only: bool,
+    pub inspect_tree: bool,
+
+    /// When JIT compiling, prints out assembly to stdout after every line entered into interpreter
+    #[arg(long)]
+    pub inspect_asm: bool,
+
+
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
