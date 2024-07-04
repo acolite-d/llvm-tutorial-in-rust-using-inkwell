@@ -24,21 +24,25 @@ pub struct Cli {
     )]
     pub passes: String,
 
-    /// When AOT compiling, specifies an output file to write to
+    /// When compiling a file, specifies an output file to write to
     #[arg(short, long, default_value = "a.out")]
     pub output: PathBuf,
 
-    /// When AOT compiling, specifies the output should be assembly instead of object file
+    /// When compiling a file, specifies the output should be assembly instead of object file
     #[arg(short = 'S', long = "assembly")]
     pub asm_p: bool,
 
-    /// When JIT compiling, prints out AST to stdout after every line entered into interpreter
-    #[arg(long)]
-    pub inspect_tree: bool,
+    /// When interpreting, prints out AST to stdout after every line entered into interpreter
+    #[arg(long = "inspect-tree")]
+    pub inspect_tree_p: bool,
 
-    /// When JIT compiling, prints out assembly to stdout after every line entered into interpreter
-    #[arg(long)]
-    pub inspect_asm: bool,
+    /// When interpreting, prints out the LLVM intermediate representation after every line entered into interpreter
+    #[arg(long = "inspect-ir")]
+    pub inspect_ir_p: bool,
+
+    /// When interpreting, prints out assembly to stdout after every line entered into interpreter
+    #[arg(long = "inspect-asm")]
+    pub inspect_asm_p: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

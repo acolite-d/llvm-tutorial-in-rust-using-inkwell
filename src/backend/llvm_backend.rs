@@ -107,7 +107,21 @@ impl<'ctx> LLVMContext<'ctx> {
     // which will show us what the IR we just generated looks like
     // within our context.
     pub fn dump_module(&self) {
-        self.module.print_to_stderr();
+        println!(
+            "LLVM IR Representation:\n{}\n",
+            self.module.print_to_string().to_string(),
+        );
+    }
+
+    pub fn dump_assembly(&self) -> () {
+        let buf = self.machine
+            .write_to_memory_buffer(&self.module, FileType::Assembly)
+            .expect("Failed to write assembly representation");
+
+        println!(
+            "Assembly Representation:\n{}\n",
+            std::str::from_utf8(buf.as_slice()).unwrap()
+        );
     }
 
     // Small helper method to remove the top level anonymous expression,
@@ -146,7 +160,7 @@ impl<'ctx> LLVMContext<'ctx> {
     pub fn compile(&self, path: &Path, file_type: FileType) -> () {
         self.machine
             .write_to_file(&self.module, file_type, path)
-            .expect("Failed to write object to file");
+            .expect("Failed to compile");
     }
 
     // JIT evalution, creates an ExecutionEngine object, JIT compiles the function,

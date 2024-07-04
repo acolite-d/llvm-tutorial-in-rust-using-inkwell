@@ -1,19 +1,17 @@
 use std::io::Write;
 
 use crate::{
-    cli::OptLevel,
+    cli::Cli,
     frontend::{
         lexer::{Lex, Token},
         parser::{parse_definition, parse_extern, parse_top_level_expr},
     },
+    backend::llvm_backend::{LLVMCodeGen, LLVMContext}
 };
-
-use crate::backend::llvm_backend::{LLVMCodeGen, LLVMContext};
 
 // I have two different kinds of Read-Print-Eval-Loops here. One simply runs
 // frontend of Kaleidoscope, producing AST, printing debug representation of that.
 // The other does the additional step of generating LLVM IR, JIT compiling and running it.
-
 pub fn ast_parser_driver() {
     let mut input_buf = String::new();
 
@@ -70,10 +68,10 @@ pub fn ast_parser_driver() {
     }
 }
 
-pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
+pub fn driver(cli_args: &Cli) {
     let context = inkwell::context::Context::create();
 
-    let sesh_ctx = LLVMContext::new(&context, opt_level);
+    let sesh_ctx = LLVMContext::new(&context, cli_args.opt_level);
     let mut input_buf = String::new();
 
     loop {
@@ -91,8 +89,14 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
                     println!("Parsed a function definition.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(_ir) => {
-                            sesh_ctx.run_passes(passes);
-                            sesh_ctx.dump_module();
+                            sesh_ctx.run_passes(&cli_args.passes);
+
+                            cli_args.inspect_tree_p
+                                .then(|| println!("Abstract Syntax Tree Representation:\n{:#?}\n", &ast));
+                            cli_args.inspect_ir_p
+                                .then(|| sesh_ctx.dump_module());
+                            cli_args.inspect_asm_p
+                                .then(|| sesh_ctx.dump_assembly());
                         }
                         Err(e) => eprintln!("Backend error: {}", e),
                     }
@@ -106,8 +110,16 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
             Some(Token::Extern) => match parse_extern(&mut tokens) {
                 Ok(ast) => {
                     println!("Parsed an extern.");
+                    
                     match ast.codegen(&sesh_ctx) {
-                        Ok(_ir) => sesh_ctx.dump_module(),
+                        Ok(_ir) => {
+                            cli_args.inspect_tree_p
+                                .then(|| println!("Abstract Syntax Tree Representation:\n{:#?}\n", &ast));
+                            cli_args.inspect_ir_p
+                                .then(|| sesh_ctx.dump_module());
+                            cli_args.inspect_asm_p
+                                .then(|| sesh_ctx.dump_assembly());
+                        }
                         Err(e) => eprintln!("Backend error: {}", e),
                     }
                 }
@@ -124,15 +136,22 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
             Some(_top_level_token) => match parse_top_level_expr(&mut tokens) {
                 Ok(ast) => {
                     println!("Parsed a top level expression.");
+
                     match ast.codegen(&sesh_ctx) {
                         Ok(_ir) => {
-                            sesh_ctx.run_passes(passes);
-                            sesh_ctx.dump_module();
+                            sesh_ctx.run_passes(&cli_args.passes);
+
+                            cli_args.inspect_tree_p
+                                .then(|| println!("Abstract Syntax Tree Representation:\n{:#?}\n", &ast));
+                            cli_args.inspect_ir_p
+                                .then(|| sesh_ctx.dump_module());
+                            cli_args.inspect_asm_p
+                                .then(|| sesh_ctx.dump_assembly());
 
                             unsafe {
                                 let res = sesh_ctx
                                     .jit_eval()
-                                    .expect("Failed to JIT top level pression into function!");
+                                    .expect("Failed to JIT top level expression into function!");
 
                                 println!("Jit compiled and evaluated to: {res}");
                             }

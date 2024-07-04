@@ -49,9 +49,5 @@ fn main() {
     }
 
     // If no positional arguments, start REPL drivers, infinite loops
-    if cli.inspect_tree {
-        repl::ast_parser_driver();
-    } else {
-        repl::llvm_ir_gen_driver(cli.opt_level, &cli.passes);
-    }
+    repl::driver(&cli);
 }
