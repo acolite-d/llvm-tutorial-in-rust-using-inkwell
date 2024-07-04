@@ -91,7 +91,6 @@ pub fn llvm_ir_gen_driver(opt_level: OptLevel, passes: &str) {
                     println!("Parsed a function definition.");
                     match ast.codegen(&sesh_ctx) {
                         Ok(_ir) => {
-
                             sesh_ctx.run_passes(passes);
                             sesh_ctx.dump_module();
                         }

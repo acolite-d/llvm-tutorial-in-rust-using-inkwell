@@ -6,14 +6,24 @@ extern crate lazy_static;
 
 mod backend;
 mod cli;
+mod compile;
 mod frontend;
 mod repl;
-mod compile;
 
 use clap::Parser;
 use inkwell::targets;
 
+extern "C" {
+    fn putchard(ascii_code: f64) -> f64;
+    fn printd(float_value: f64) -> f64;
+}
+
 fn main() {
+    let _externs: &[*const extern "C" fn(f64) -> f64] = &[
+        putchard as _,
+        printd as _,
+    ];
+
     let cli = cli::Cli::parse();
 
     let target_config = targets::InitializationConfig::default();
@@ -28,8 +38,7 @@ fn main() {
     if let Some(ref file_path) = cli.file {
         match read_to_string(file_path) {
             Ok(src_code) => {
-                compile::compile_src(&src_code, &cli)
-                    .expect("Failed to compile to object");
+                compile::compile_src(&src_code, &cli).expect("Failed to compile to object");
                 exit(0);
             }
             Err(_) => {

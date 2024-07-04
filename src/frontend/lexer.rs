@@ -87,8 +87,9 @@ impl Ops {
 impl<'src> Token<'src> {
     fn is_single_char_token(c: char) -> bool {
         match c {
-            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' | '<' | '>' | '|' | '&' | '^'
-            | ':' => true,
+            '+' | '-' | '*' | '/' | ';' | ',' | '(' | ')' | '<' | '>' | '|' | '&' | '^' | ':' => {
+                true
+            }
 
             _ => false,
         }

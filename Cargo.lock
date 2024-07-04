@@ -59,9 +59,9 @@ checksum = "25bdb32cbbdce2b519a9cd7df3a678443100e265d5e25ca763b7572a5104f5f3"
 
 [[package]]
 name = "cc"
-version = "1.0.97"
+version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "099a5357d84c4c61eb35fc8eafa9a79a902c2f76911e5747ced4e032edd8d9b4"
+checksum = "779e6b7d17797c0b42023d417228c02889300190e700cb074c3438d9c541d332"
 
 [[package]]
 name = "clap"

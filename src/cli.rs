@@ -17,7 +17,11 @@ pub struct Cli {
     pub opt_level: OptLevel,
 
     /// Comma separated list of LLVM passes (use opt for a list, also see https://www.llvm.org/docs/Passes.html)
-    #[arg(short, long, default_value = "instcombine,reassociate,gvn,simplifycfg,mem2reg")]
+    #[arg(
+        short,
+        long,
+        default_value = "instcombine,reassociate,gvn,simplifycfg,mem2reg"
+    )]
     pub passes: String,
 
     /// When AOT compiling, specifies an output file to write to
@@ -35,8 +39,6 @@ pub struct Cli {
     /// When JIT compiling, prints out assembly to stdout after every line entered into interpreter
     #[arg(long)]
     pub inspect_asm: bool,
-
-
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

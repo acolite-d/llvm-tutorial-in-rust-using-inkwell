@@ -3,8 +3,6 @@ name = "kaleidrs"
 version = "0.1.0"
 edition = "2021"
 
-[lints.rust]
-
 [dependencies]
 inkwell = { version = "0.4.0", features = ["llvm17-0-force-static"] }
 dyn_partial_eq = "0.1.2"

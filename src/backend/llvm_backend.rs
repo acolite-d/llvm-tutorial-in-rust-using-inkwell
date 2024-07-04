@@ -121,7 +121,6 @@ impl<'ctx> LLVMContext<'ctx> {
 
     // Optimization passes
     pub fn run_passes(&self, passes: &str) {
-
         if !passes.is_empty() {
             let pass_options = PassBuilderOptions::create();
 
@@ -137,7 +136,7 @@ impl<'ctx> LLVMContext<'ctx> {
             pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
             pass_options.set_call_graph_profile(true);
             pass_options.set_merge_functions(true);
-    
+
             self.module
                 .run_passes(passes, &self.machine, pass_options)
                 .unwrap();
@@ -145,11 +144,9 @@ impl<'ctx> LLVMContext<'ctx> {
     }
 
     pub fn compile(&self, path: &Path, file_type: FileType) -> () {
-        self.machine.write_to_file(
-            &self.module, 
-            file_type, 
-            path,
-        ).expect("Failed to write object to file");
+        self.machine
+            .write_to_file(&self.module, file_type, path)
+            .expect("Failed to write object to file");
     }
 
     // JIT evalution, creates an ExecutionEngine object, JIT compiles the function,
@@ -573,7 +570,7 @@ where
                 // Build the main loop basic block then a unconditional fall through branch
                 // at header bb to make sure we fall into loop
                 let loop_bb = context.context.append_basic_block(function, &"loop");
-                
+
                 context
                     .builder
                     .build_unconditional_branch(loop_bb)
@@ -653,7 +650,11 @@ where
                     context.sym_table.borrow_mut().remove(*varname);
                 }
 
-                Ok(context.context.f64_type().const_float(0.0).as_any_value_enum())
+                Ok(context
+                    .context
+                    .f64_type()
+                    .const_float(0.0)
+                    .as_any_value_enum())
             }
 
             VarExpr { var_names, body } => {

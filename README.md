@@ -1,5 +1,5 @@
 # A Rust Rewrite of the LLVM Tutorial, using Inkwell
-Original tutorial found here https://llvm.org/docs/tutorial/#kaleidoscope-implementing-a-language-with-llvm. Have rewritten everything up to Part 4. Code is more or less the same, but uses less global state, more modularity, more organization.
+Original tutorial found here https://llvm.org/docs/tutorial/#kaleidoscope-implementing-a-language-with-llvm. Have rewritten everything up to Part 7. Code is more or less the same, but uses less global state, more modularity, more organization. There are also complete redesigns of certain aspects of the code, including an AST that does not rely on dynamic dispatch, and a robust command line interface that allows users to better visualize the process of compilation.
 
 The code is material for these blog posts:
 - [Lexer/Parser](https://find.thedoorman.xyz/building-your-own-programming-language-learning-about-compiler-design-llvm-with-a-rust-rewrite-of-the-official-llvm-tutorial-part-1-lexer-parser/)
@@ -20,6 +20,54 @@ Code is setup as a typical Cargo project.
 - Use `cargo build` to build.
 - Use `cargo test` to run tests, a few are there.
 - Use `cargo run` to run an interpreter session, JIT compiled. Prints IR, along with what was evaluated when the IR was JIT compiled and executed.
+
+## How to Use
+Project has a command line interface (built via the clap crate).
+
+```sh
+cargo run -- --help
+Usage: kaleidrs [OPTIONS] [FILE]
+
+Arguments:
+  [FILE]
+          A positional file containing Kaleidoscope code to compile to object code, if not given, starts interpreter instead
+
+Options:
+      --opt-level <OPT_LEVEL>
+          What optimization level to pass to LLVM
+          
+          [default: O2]
+
+          Possible values:
+          - O0: No optimization
+          - O1: Less optimization
+          - O2: Default optimization
+          - O3: Aggressive optimization
+
+  -p, --passes <PASSES>
+          Comma separated list of LLVM passes (use opt for a list, also see https://www.llvm.org/docs/Passes.html)
+          
+          [default: instcombine,reassociate,gvn,simplifycfg,mem2reg]
+
+      --use-frontend-only
+          Interpret with frontend only, output AST, only valid for interpreter use
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+```
+
+## A Breakdown of the Features of Kaleidoscope
+As per the LLVM tutorial, all features, including the fleshed out ones found in the latter chapters are implemented.
+
+### Basic Control Flow
+
+### Unary/Binary Operator Overloading
+
+### Mutable Variables
+
 
 ## Example
 
