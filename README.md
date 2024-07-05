@@ -147,7 +147,7 @@ Ready >>
 ```
 
 ### External Function Definitions
-You can declare C standard library functions in your program, as long as they only accept double parameters and return double parameters.
+You can declare C standard library functions in your program, as long as they only accept double parameters and return double values. 
 
 ```sh
 kaleidrs$ cargo run -- --inspect-ir
