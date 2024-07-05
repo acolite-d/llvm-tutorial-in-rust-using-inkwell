@@ -108,7 +108,7 @@ impl<'ctx> LLVMContext<'ctx> {
     // within our context.
     pub fn dump_module(&self) {
         println!(
-            "LLVM IR Representation:\n{}\n",
+            "LLVM IR Representation:\n{}",
             self.module.print_to_string().to_string(),
         );
     }
@@ -141,15 +141,15 @@ impl<'ctx> LLVMContext<'ctx> {
             // Default passes
             pass_options.set_verify_each(true);
             pass_options.set_debug_logging(false);
-            pass_options.set_loop_interleaving(true);
-            pass_options.set_loop_vectorization(true);
-            pass_options.set_loop_slp_vectorization(true);
-            pass_options.set_loop_unrolling(true);
-            pass_options.set_forget_all_scev_in_loop_unroll(true);
-            pass_options.set_licm_mssa_opt_cap(1);
-            pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
-            pass_options.set_call_graph_profile(true);
-            pass_options.set_merge_functions(true);
+            // pass_options.set_loop_interleaving(true);
+            // pass_options.set_loop_vectorization(true);
+            // pass_options.set_loop_slp_vectorization(true);
+            // pass_options.set_loop_unrolling(true);
+            // pass_options.set_forget_all_scev_in_loop_unroll(true);
+            // pass_options.set_licm_mssa_opt_cap(1);
+            // pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
+            // pass_options.set_call_graph_profile(true);
+            // pass_options.set_merge_functions(true);
 
             self.module
                 .run_passes(passes, &self.machine, pass_options)

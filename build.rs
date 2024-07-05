@@ -10,7 +10,7 @@ fn main() {
         .arg("-o")
         .arg(format!("{}/libio.so", out_dir))
         .status()
-        .expect("Failed to invoke clang and build shared library for external C functions!");
+        .expect("Failed to invoke C compiler and build shared library for external C functions!");
 
     if !status.success() {
         panic!("Compilation of C add-on libraries failed!");

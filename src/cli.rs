@@ -13,7 +13,7 @@ pub struct Cli {
     pub file: Option<PathBuf>,
 
     /// What optimization level to pass to LLVM
-    #[arg(long, value_enum, default_value = OptLevel::O2)]
+    #[arg(short = 'O', long, value_enum, default_value = OptLevel::O2)]
     pub opt_level: OptLevel,
 
     /// Comma separated list of LLVM passes (use opt for a list, also see https://www.llvm.org/docs/Passes.html)
