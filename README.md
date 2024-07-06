@@ -20,7 +20,7 @@ Code is setup as a typical Cargo project.
 
 - Use `cargo build` to build.
 - Use `cargo test` to run tests, a few are there for the frontend.
-- Use `cargo run` to run an interpreter session, JIT compiled. Prints IR, along with what was evaluated when the IR was JIT compiled and executed. To pass arguments, use `cargo run -- ` followed by whatever flags you want to pass. To compile a file instead of starting REPL, pass a file as a positional argument.
+- Use `cargo run` to run an interpreter session, JIT compiled. To pass arguments, use `cargo run -- ` followed by whatever flags you want to pass. To compile a file instead of starting REPL, pass a file as a positional argument.
 
 ## How to Use
 Project has a command line interface (built via the clap crate).
@@ -639,5 +639,3 @@ fibonacci:
 
 Ready >> 
 ```
-
-Yet another feature is 
