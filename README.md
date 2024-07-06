@@ -34,6 +34,9 @@ Arguments:
           A positional file containing Kaleidoscope code to compile to object/assembly, if not given, starts interpreter instead
 
 Options:
+      --target <TARGET>
+        Specifies a non-native target to compile for, can be any one of the CPUs listed using "llc --version", or string parseable as LLVMTargetTriple
+
   -O, --opt-level <OPT_LEVEL>
           What optimization level to pass to LLVM
           
@@ -75,8 +78,7 @@ Options:
 ```
 
 ## A Breakdown of the Features of Kaleidoscope
-As per the LLVM tutorial, all features, including the fleshed out ones found in the latter chapters are implemented. For starters,
-observe this simple REPL session, where each line is JIT compiled and executed directly on the host CPU.
+As per the LLVM tutorial, all aspects of language, all features, including the fleshed out ones found in the latter chapters are implemented. For starters, observe this simple REPL session, where each line prints out IR that is JIT compiled and executed directly on the host CPU.
 
 ```sh
 kaleidrs$ cargo run -- --inspect-ir
@@ -470,7 +472,7 @@ fibonacci:
         .section        ".note.GNU-stack","",@progbits
 ```
 
-You can also configure the LLVM optimization levels with `--opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
+You can also configure the LLVM optimization levels with the `--opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
 
 ```sh
 kaleidrs$ cargo run -- --inspect-ir --inspect-asm  --passes ""
@@ -637,3 +639,5 @@ fibonacci:
 
 Ready >> 
 ```
+
+Yet another feature is 

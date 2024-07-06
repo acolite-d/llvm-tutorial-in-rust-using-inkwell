@@ -13,7 +13,7 @@ use crate::{
 
 pub fn compile_src<'src>(src_code: &'src str, cli: &Cli) -> Result<(), Box<dyn Error + 'src>> {
     let ctx = inkwell::context::Context::create();
-    let llvm_ctx = LLVMContext::new(&ctx, cli.opt_level);
+    let llvm_ctx = LLVMContext::new(&ctx, cli);
 
     let mut tokens = src_code.lex().peekable();
 

@@ -72,7 +72,7 @@ pub fn ast_parser_driver() {
 pub fn driver(cli_args: &Cli) {
     let context = inkwell::context::Context::create();
 
-    let sesh_ctx = LLVMContext::new(&context, cli_args.opt_level);
+    let sesh_ctx = LLVMContext::new(&context, &cli_args);
     let mut input_buf = String::new();
 
     loop {

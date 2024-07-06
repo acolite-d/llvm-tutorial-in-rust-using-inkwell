@@ -12,6 +12,10 @@ pub struct Cli {
     /// A positional file containing Kaleidoscope code to compile to object/assembly, if not given, starts interpreter instead
     pub file: Option<PathBuf>,
 
+    /// Specifies a non-native target to compile for, can be any one of the CPUs listed using "llc --version", or string parseable as LLVMTargetTriple
+    #[arg(long)]
+    pub target: Option<String>,
+
     /// What optimization level to pass to LLVM
     #[arg(short = 'O', long, value_enum, default_value = OptLevel::O2)]
     pub opt_level: OptLevel,
@@ -60,10 +64,10 @@ impl ValueEnum for OptLevel {
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         Some(match self {
-            OptLevel::O0 => PossibleValue::new("O0").help("No optimization"),
-            OptLevel::O1 => PossibleValue::new("O1").help("Less optimization"),
-            OptLevel::O2 => PossibleValue::new("O2").help("Default optimization"),
-            OptLevel::O3 => PossibleValue::new("O3").help("Aggressive optimization"),
+            OptLevel::O0 => PossibleValue::new("0").help("No optimization"),
+            OptLevel::O1 => PossibleValue::new("1").help("Less optimization"),
+            OptLevel::O2 => PossibleValue::new("2").help("Default optimization"),
+            OptLevel::O3 => PossibleValue::new("3").help("Aggressive optimization"),
         })
     }
 }
@@ -71,10 +75,10 @@ impl ValueEnum for OptLevel {
 impl Into<OsStr> for OptLevel {
     fn into(self) -> OsStr {
         match self {
-            OptLevel::O0 => "O0".into(),
-            OptLevel::O1 => "O1".into(),
-            OptLevel::O2 => "O2".into(),
-            OptLevel::O3 => "O3".into(),
+            OptLevel::O0 => "0".into(),
+            OptLevel::O1 => "1".into(),
+            OptLevel::O2 => "2".into(),
+            OptLevel::O3 => "3".into(),
         }
     }
 }

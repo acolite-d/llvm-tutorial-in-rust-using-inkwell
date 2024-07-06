@@ -8,7 +8,7 @@ use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
 use inkwell::module::{Linkage, Module};
 use inkwell::passes::PassBuilderOptions;
-use inkwell::targets::{CodeModel, FileType, RelocMode, Target, TargetMachine};
+use inkwell::targets::{CodeModel, FileType, RelocMode, Target, TargetMachine, TargetTriple};
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::{
     AnyValue, AnyValueEnum, BasicMetadataValueEnum, BasicValue, FunctionValue, PointerValue,
@@ -17,7 +17,7 @@ use inkwell::FloatPredicate;
 use inkwell::OptimizationLevel;
 use thiserror::Error;
 
-use crate::cli::OptLevel;
+use crate::cli::Cli;
 use crate::frontend::{
     ast::{ASTExpr, Function, Prototype},
     lexer::Ops,
@@ -76,19 +76,24 @@ pub struct LLVMContext<'ctx> {
 }
 
 impl<'ctx> LLVMContext<'ctx> {
-    pub fn new(context: &'ctx Context, opt_level: OptLevel) -> Self {
+    pub fn new(context: &'ctx Context, cli_args: &Cli) -> Self {
         let builder = context.create_builder();
         let module = context.create_module("kaleidrs_module");
 
-        let triple = TargetMachine::get_default_triple();
-        let target = Target::from_triple(&triple).unwrap();
+        let triple = match cli_args.target.as_ref() {
+            None => TargetMachine::get_default_triple(),
+            Some(target_str) => TargetTriple::create(target_str.as_str()),
+        };
+
+        let target = Target::from_triple(&triple)
+            .expect("Unkown target: please specify a target ");
 
         let machine = target
             .create_target_machine(
                 &triple,
                 "generic",
                 "",
-                opt_level.into(),
+                cli_args.opt_level.into(),
                 RelocMode::Default,
                 CodeModel::Default,
             )
@@ -113,6 +118,8 @@ impl<'ctx> LLVMContext<'ctx> {
         );
     }
 
+    // This method will write assembly of module to memory buffer, read as UTF-8 and print
+    // to screen.
     pub fn dump_assembly(&self) -> () {
         let buf = self.machine
             .write_to_memory_buffer(&self.module, FileType::Assembly)
@@ -141,15 +148,6 @@ impl<'ctx> LLVMContext<'ctx> {
             // Default passes
             pass_options.set_verify_each(true);
             pass_options.set_debug_logging(false);
-            // pass_options.set_loop_interleaving(true);
-            // pass_options.set_loop_vectorization(true);
-            // pass_options.set_loop_slp_vectorization(true);
-            // pass_options.set_loop_unrolling(true);
-            // pass_options.set_forget_all_scev_in_loop_unroll(true);
-            // pass_options.set_licm_mssa_opt_cap(1);
-            // pass_options.set_licm_mssa_no_acc_for_promotion_cap(10);
-            // pass_options.set_call_graph_profile(true);
-            // pass_options.set_merge_functions(true);
 
             self.module
                 .run_passes(passes, &self.machine, pass_options)
