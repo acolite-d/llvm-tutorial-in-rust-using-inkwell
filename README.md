@@ -35,7 +35,7 @@ Arguments:
 
 Options:
       --target <TARGET>
-        Specifies a non-native target to compile for, can be any one of the CPUs listed using "llc --version", or string parseable as LLVMTargetTriple
+        Specifies a non-native target to compile for, can be any one of the CPUs listed in "llc --version", or valid target triple
 
   -O, --opt-level <OPT_LEVEL>
           What optimization level to pass to LLVM
