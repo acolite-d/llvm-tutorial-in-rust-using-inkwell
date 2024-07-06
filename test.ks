@@ -1,9 +1,8 @@
-extern log(n);
-
-extern sin(a);
-
-def start() 
-    log(22.2)
+def fibonacci(n)
+    if n < 3 then 
+        1 
+    else 
+        fibonacci(n-1) + fibonacci(n-2)
 ;
 
-start();
+fibonacci(10);

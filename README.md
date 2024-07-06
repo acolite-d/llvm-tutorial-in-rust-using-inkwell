@@ -639,3 +639,93 @@ fibonacci:
 
 Ready >> 
 ```
+
+In addition, the `--target` flag will allow you to cross compile to whatever CPU or target triple LLVM supports. You can then compare the same program compiled to different targets, and see optimizations take place over various CPU architectures. From ARM to RISC-V to WASM to SPARC and everything in between. Not just the native architecture your computers runs on.
+
+```
+kaleidrs$ cat test.ks
+def fibonacci(n)
+    if n < 3 then 
+        1 
+    else 
+        fibonacci(n-1) + fibonacci(n-2)
+;
+
+fibonacci(10);
+kaleidrs$ cargo run -- test.ks --target armv7a-none-eabi -S -o test.S
+   Compiling kaleidrs v0.1.0 (/home/jdorman/projects/langs-test/kaleidrs)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.65s
+     Running `target/debug/kaleidrs test.ks --target armv7a-none-eabi -S -o test.S`
+kaleidrs$ cat test.S
+        .text
+        .syntax unified
+        .eabi_attribute 67, "2.09"
+        .eabi_attribute 6, 10
+        .eabi_attribute 7, 65
+        .eabi_attribute 8, 1
+        .eabi_attribute 9, 2
+        .fpu    vfpv3
+        .eabi_attribute 34, 1
+        .eabi_attribute 17, 1
+        .eabi_attribute 20, 1
+        .eabi_attribute 21, 0
+        .eabi_attribute 23, 3
+        .eabi_attribute 24, 1
+        .eabi_attribute 25, 1
+        .eabi_attribute 38, 1
+        .eabi_attribute 14, 0
+        .file   "kaleidrs_module"
+        .globl  fibonacci
+        .p2align        2
+        .type   fibonacci,%function
+        .code   32
+fibonacci:
+        .fnstart
+        push    {r11, lr}
+        vpush   {d8}
+        vmov.f64        d16, #3.000000e+00
+        vmov    d8, r0, r1
+        vcmp.f64        d8, d16
+        vmrs    APSR_nzcv, fpscr
+        bpl     .LBB0_2
+        vmov.f64        d16, #1.000000e+00
+        b       .LBB0_3
+.LBB0_2:
+        vmov.f64        d16, #-1.000000e+00
+        vadd.f64        d16, d8, d16
+        vmov    r0, r1, d16
+        bl      fibonacci
+        vmov.f64        d16, #-2.000000e+00
+        vadd.f64        d16, d8, d16
+        vmov    r2, r3, d16
+        vmov    d8, r0, r1
+        mov     r0, r2
+        mov     r1, r3
+        bl      fibonacci
+        vmov    d16, r0, r1
+        vadd.f64        d16, d8, d16
+.LBB0_3:
+        vmov    r0, r1, d16
+        vpop    {d8}
+        pop     {r11, pc}
+.Lfunc_end0:
+        .size   fibonacci, .Lfunc_end0-fibonacci
+        .fnend
+
+        .globl  __anonymous_expr
+        .p2align        2
+        .type   __anonymous_expr,%function
+        .code   32
+__anonymous_expr:
+        .fnstart
+        push    {r11, lr}
+        vmov.f64        d16, #1.000000e+01
+        vmov    r0, r1, d16
+        bl      fibonacci
+        pop     {r11, pc}
+.Lfunc_end1:
+        .size   __anonymous_expr, .Lfunc_end1-__anonymous_expr
+        .fnend
+
+        .section        ".note.GNU-stack","",%progbits
+```
