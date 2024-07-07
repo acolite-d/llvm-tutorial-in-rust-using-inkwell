@@ -472,7 +472,7 @@ fibonacci:
         .section        ".note.GNU-stack","",@progbits
 ```
 
-You can also configure the LLVM optimization levels with the `--opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
+You can also configure the LLVM optimization levels with the `-O{1,2,3,4}, --opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
 
 ```sh
 kaleidrs$ cargo run -- --inspect-ir --inspect-asm  --passes ""
