@@ -640,7 +640,7 @@ fibonacci:
 Ready >> 
 ```
 
-In addition, the `--target` flag will allow you to cross compile to whatever CPU or target triple LLVM supports. You can then compare the same program compiled to different targets, and see optimizations take place over various CPU architectures. From ARM to RISC-V to WASM to SPARC and everything in between. Not just the native architecture your computers runs on.
+In addition, the `--target` flag will allow you to cross compile to whatever CPU or target triple LLVM supports. You can then compare the same program compiled to different targets, and see optimizations take place over various CPU architectures. From ARM to RISC-V to WASM to SPARC and everything in between. Not just the native architecture your computer runs on.
 
 ```
 kaleidrs$ cat test.ks
