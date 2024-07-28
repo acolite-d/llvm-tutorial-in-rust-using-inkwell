@@ -340,7 +340,7 @@ Ready >>
 ```
 
 ### Other Cool Things You Can Do
-The language itself is no different than the original tutorial implementation, but there is some additional tooling in form of a CLI that allow you to configure different parts of compilation to compare and contrast. One of the more interesting ones is the ability to freely inspect the abstract syntax tree, IR, and final assembly code after every line entered in the REPL using the `--inspect-*` flags.
+The language itself is no different than the original tutorial implementation, but there is some additional tooling in form of a CLI that allow you to configure different parts of compilation to compare and contrast. One of the more interesting features is the ability to freely inspect the abstract syntax tree, IR, and final assembly code after every line entered in the REPL using the `--inspect-*` flags.
 
 ```sh
 kaleidrs$ cargo run -- --inspect-tree --inspect-ir --inspect-asm
@@ -472,7 +472,7 @@ fibonacci:
         .section        ".note.GNU-stack","",@progbits
 ```
 
-You can also configure the LLVM optimization levels with the `-O{1,2,3,4}, --opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
+You can also configure the LLVM optimization levels with the `-O{1,2,3}, --opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
 
 ```sh
 kaleidrs$ cargo run -- --inspect-ir --inspect-asm  --passes ""
