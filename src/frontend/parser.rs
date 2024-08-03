@@ -184,6 +184,9 @@ type ExprParseResult<'src> = Result<Box<ASTExpr<'src>>, ParserError<'src>>;
 ///   ::= identifierexpr
 ///   ::= numberexpr
 ///   ::= parenexpr
+///   ::= ifexpr
+///   ::= forloopexpr
+///   ::= varexpr
 fn parse_primary<'src>(
     tokens: &mut Peekable<impl Iterator<Item = Token<'src>>>,
 ) -> ExprParseResult<'src> {

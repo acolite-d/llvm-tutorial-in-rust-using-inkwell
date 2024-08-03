@@ -86,7 +86,7 @@ impl<'ctx> LLVMContext<'ctx> {
         };
 
         let target = Target::from_triple(&triple)
-            .expect("Unkown target: please specify a target ");
+            .expect("Unknown target: please specify a target ");
 
         let machine = target
             .create_target_machine(
