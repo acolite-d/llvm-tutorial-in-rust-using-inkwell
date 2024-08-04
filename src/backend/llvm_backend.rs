@@ -474,15 +474,15 @@ where
             } => {
                 let cond_codegen = cond.codegen(context)?;
 
-                let one = context.context.f64_type().const_float(1.0);
+                let zero = context.context.f64_type().const_float(0.0);
 
-                // Compute the truth of the condition by comparing value of expression to one
+                // Compute the truth of the condition by comparing value of expression to zero, C like truthiness
                 let cond_bool = context
                     .builder
                     .build_float_compare(
-                        FloatPredicate::OEQ,
+                        FloatPredicate::ONE,
                         cond_codegen.into_float_value(),
-                        one,
+                        zero,
                         &"iftemp",
                     )
                     .expect("FATAL: LLVM failed to build float compare!");
