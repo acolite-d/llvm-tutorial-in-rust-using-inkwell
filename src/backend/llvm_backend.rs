@@ -483,7 +483,7 @@ where
                         FloatPredicate::ONE,
                         cond_codegen.into_float_value(),
                         zero,
-                        &"iftemp",
+                        &"ifcond",
                     )
                     .expect("FATAL: LLVM failed to build float compare!");
 
@@ -518,12 +518,16 @@ where
                     .build_unconditional_branch(bbs[2])
                     .expect("FATAL: LLVM failed to build branch!");
 
+                let then_bb = context.builder.get_insert_block().unwrap();
+
                 context.builder.position_at_end(bbs[1]);
                 let else_v = else_branch.codegen(context)?;
                 context
                     .builder
                     .build_unconditional_branch(bbs[2])
                     .expect("FATAL: LLVM failed to build branch!");
+
+                let else_bb = context.builder.get_insert_block().unwrap();
 
                 context.builder.position_at_end(bbs[2]);
                 let phi_node = context
@@ -532,8 +536,8 @@ where
                     .expect("LLVM failed to create PHI!");
 
                 phi_node.add_incoming(&[
-                    (&then_v.into_float_value() as &dyn BasicValue<'ctx>, bbs[0]),
-                    (&else_v.into_float_value() as &dyn BasicValue<'ctx>, bbs[1]),
+                    (&then_v.into_float_value() as &dyn BasicValue<'ctx>, then_bb),
+                    (&else_v.into_float_value() as &dyn BasicValue<'ctx>, else_bb),
                 ]);
 
                 Ok(phi_node.as_any_value_enum())
