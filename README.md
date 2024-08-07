@@ -5,7 +5,7 @@ The code is material for these blog posts:
 - [Lexer/Parser](https://find.thedoorman.xyz/building-your-own-programming-language-learning-about-compiler-design-llvm-with-a-rust-rewrite-of-the-official-llvm-tutorial-part-1-lexer-parser/)
 - [IR Generation](https://find.thedoorman.xyz/building-your-own-programming-language-learning-about-compiler-design-llvm-with-a-rust-rewrite-of-the-official-llvm-tutorial-part-2-ir-generation/)
 - [Optimization Passes, JIT/AoT Compilation](https://find.thedoorman.xyz/building-your-own-programming-language-with-llvm-rust-part-3-optimization-compilation/)
-- [Languages Extensions (ff-then-else, for-loops, user-defined operators, mutable variables)](https://find.thedoorman.xyz/building-your-own-programming-language-with-llvm-rust-part-4-control-flow-user-defined-operators-mutability/)
+- [Languages Extensions (if-then-else, for-loops, user-defined operators, mutable variables)](https://find.thedoorman.xyz/building-your-own-programming-language-with-llvm-rust-part-4-control-flow-user-defined-operators-mutability/)
 
 ## Building
 
