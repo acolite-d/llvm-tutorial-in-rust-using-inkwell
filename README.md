@@ -4,7 +4,8 @@ Original tutorial found here https://llvm.org/docs/tutorial/#kaleidoscope-implem
 The code is material for these blog posts:
 - [Lexer/Parser](https://find.thedoorman.xyz/building-your-own-programming-language-learning-about-compiler-design-llvm-with-a-rust-rewrite-of-the-official-llvm-tutorial-part-1-lexer-parser/)
 - [IR Generation](https://find.thedoorman.xyz/building-your-own-programming-language-learning-about-compiler-design-llvm-with-a-rust-rewrite-of-the-official-llvm-tutorial-part-2-ir-generation/)
-- (More to come soon)
+- [Optimization Passes, JIT/AoT Compilation](https://find.thedoorman.xyz/building-your-own-programming-language-with-llvm-rust-part-3-optimization-compilation/)
+- [Languages Extensions (ff-then-else, for-loops, user-defined operators, mutable variables)](https://find.thedoorman.xyz/building-your-own-programming-language-with-llvm-rust-part-4-control-flow-user-defined-operators-mutability/)
 
 ## Building
 
@@ -18,9 +19,9 @@ In order to build you will need the following:
 
 Code is setup as a typical Cargo project.
 
-- Use `cargo build` to build.
-- Use `cargo test` to run tests, a few are there for the frontend.
-- Use `cargo run` to run an interpreter session, JIT compiled. To pass arguments, use `cargo run -- ` followed by whatever flags you want to pass. To compile a file instead of starting REPL, pass a file as a positional argument.
+- Use `cargo b/build` to build.
+- Use `cargo t/test` to run tests, a few are there for the frontend.
+- Use `cargo r/run` to run an interpreter session, JIT compiled. To pass arguments, use `cargo run -- ` followed by whatever flags you want to pass. To compile a file instead of starting REPL, pass a file as a positional argument.
 
 ## How to Use
 Project has a command line interface (built via the clap crate).
@@ -339,6 +340,152 @@ Jit compiled and evaluated to: 0
 Ready >> 
 ```
 
+### User-defined Operators
+Using the "unary" and "binary" keywords, you can define your own logic upon operators in both unary and binary expressions. There are a set few operators you can implement your custom logic to. They are "!", "|", "^", "&", and ":". Please note that binary operators require a priority.
+
+Below we implement our own bitwise negation (!) and OR (|) operators.
+
+```
+kaleidrs$ cargo r -- --inspect-ir
+   Compiling kaleidrs v0.1.0 (/home/jdorman/projects/langs-test/kaleidrs)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.28s
+     Running `target/debug/kaleidrs --inspect-ir`
+Ready >> def unary! (V) if V then 0 else 1;
+LLVM IR Representation:
+; ModuleID = 'kaleidrs_module'
+source_filename = "kaleidrs_module"
+
+define double @"unary!"(double %V) {
+entry:
+  %ifcond = fcmp ueq double %V, 0.000000e+00
+  %. = select i1 %ifcond, double 1.000000e+00, double 0.000000e+00
+  ret double %.
+}
+
+Ready >> !1;
+LLVM IR Representation:
+; ModuleID = 'kaleidrs_module'
+source_filename = "kaleidrs_module"
+
+define double @"unary!"(double %V) {
+entry:
+  %ifcond = fcmp ueq double %V, 0.000000e+00
+  %. = select i1 %ifcond, double 1.000000e+00, double 0.000000e+00
+  ret double %.
+}
+
+define double @__anonymous_expr() {
+entry:
+  %unarytmp = call double @"unary!"(double 1.000000e+00)
+  ret double %unarytmp
+}
+
+Jit compiled and evaluated to: 0
+Ready >> !0;
+LLVM IR Representation:
+; ModuleID = 'kaleidrs_module'
+source_filename = "kaleidrs_module"
+target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+
+define double @"unary!"(double %V) {
+entry:
+  %ifcond = fcmp ueq double %V, 0.000000e+00
+  %. = select i1 %ifcond, double 1.000000e+00, double 0.000000e+00
+  ret double %.
+}
+
+define double @__anonymous_expr() {
+entry:
+  %unarytmp = call double @"unary!"(double 0.000000e+00)
+  ret double %unarytmp
+}
+
+Jit compiled and evaluated to: 1
+Ready >> 
+```
+
+```
+kaleidrs$ cargo r -- --inspect-ir
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running `target/debug/kaleidrs --inspect-ir`
+Ready >> def binary| 5 (LHS RHS) if LHS then 1 else if RHS then 1 else 0;
+LLVM IR Representation:
+; ModuleID = 'kaleidrs_module'
+source_filename = "kaleidrs_module"
+
+define double @"binary|"(double %LHS, double %RHS) {
+entry:
+  %ifcond = fcmp ueq double %LHS, 0.000000e+00
+  %ifcond5 = fcmp ueq double %RHS, 0.000000e+00
+  %. = select i1 %ifcond5, double 0.000000e+00, double 1.000000e+00
+  %iftmp9 = select i1 %ifcond, double %., double 1.000000e+00
+  ret double %iftmp9
+}
+
+Ready >> (1 | 0);
+LLVM IR Representation:
+; ModuleID = 'kaleidrs_module'
+source_filename = "kaleidrs_module"
+
+define double @"binary|"(double %LHS, double %RHS) {
+entry:
+  %ifcond = fcmp ueq double %LHS, 0.000000e+00
+  %ifcond5 = fcmp ueq double %RHS, 0.000000e+00
+  %0 = select i1 %ifcond, i1 %ifcond5, i1 false
+  %iftmp9 = select i1 %0, double 0.000000e+00, double 1.000000e+00
+  ret double %iftmp9
+}
+
+define double @__anonymous_expr() {
+entry:
+  %calltmp = call double @"binary|"(double 1.000000e+00, double 0.000000e+00)
+  ret double %calltmp
+}
+
+Jit compiled and evaluated to: 1
+Ready >> (0 | 0);
+LLVM IR Representation:
+; ModuleID = 'kaleidrs_module'
+source_filename = "kaleidrs_module"
+target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+
+define double @"binary|"(double %LHS, double %RHS) {
+entry:
+  %ifcond = fcmp ueq double %LHS, 0.000000e+00
+  %ifcond5 = fcmp ueq double %RHS, 0.000000e+00
+  %0 = select i1 %ifcond, i1 %ifcond5, i1 false
+  %iftmp9 = select i1 %0, double 0.000000e+00, double 1.000000e+00
+  ret double %iftmp9
+}
+
+define double @__anonymous_expr() {
+entry:
+  %calltmp = call double @"binary|"(double 0.000000e+00, double 0.000000e+00)
+  ret double %calltmp
+}
+
+Jit compiled and evaluated to: 0
+Ready >> 
+```
+
+### Mutable Variables
+All variables are mutable, as per the original C++ implementation. User-defined variables also possible with "var" keyword. Supply a comma separated list of variables names and possible initializers. The absence of an initializer sets the value to 1.
+
+```
+Ready >> var x = 3, y = 3, z in x = z;
+LLVM IR Representation:
+; ModuleID = 'kaleidrs_module'
+source_filename = "kaleidrs_module"
+
+define double @__anonymous_expr() {
+entry:
+  ret double 1.000000e+00
+}
+
+Jit compiled and evaluated to: 1
+Ready >>   
+```
+
 ### Other Cool Things You Can Do
 The language itself is no different than the original tutorial implementation, but there is some additional tooling in form of a CLI that allow you to configure different parts of compilation to compare and contrast. One of the more interesting features is the ability to freely inspect the abstract syntax tree, IR, and final assembly code after every line entered in the REPL using the `--inspect-*` flags.
 
@@ -472,7 +619,7 @@ fibonacci:
         .section        ".note.GNU-stack","",@progbits
 ```
 
-You can also configure the LLVM optimization levels with the `-O{1,2,3}, --opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
+You can also configure the LLVM optimization levels with the `-O{0,1,2,3}, --opt-level` flags, and even pass specific LLVM optimization passes using the `-p, --passes` flag. This is a great feature to use in tandem with the inspect flags to see how passes and levels affect the final product that is run on the CPU in the JIT interpreted session. Great for experimentation.
 
 ```sh
 kaleidrs$ cargo run -- --inspect-ir --inspect-asm  --passes ""
