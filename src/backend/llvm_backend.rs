@@ -700,7 +700,7 @@ where
                     let var_ptr = context.create_entry_block_alloca(function, var_name);
 
                     // Store the initializer generated value, or the default of 0.0
-                    let _store = context
+                    context
                         .builder
                         .build_store(var_ptr, var_init_codegen)
                         .expect("FATAL: LLVM failed to build store instruction");
@@ -834,7 +834,7 @@ where
             let param_ptr = context.create_entry_block_alloca(fn_val, &owned_str);
 
             // Store the value of this paramter to it's stack copy
-            let _store = context
+            context
                 .builder
                 .build_store(param_ptr, param)
                 .expect("FATAL: LLVM failed to build store instruction");
