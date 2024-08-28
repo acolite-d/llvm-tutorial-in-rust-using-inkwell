@@ -236,7 +236,7 @@ Ready >>
 ```
 
 ### Control Flow
-Basic control flow in form of if-the-else, for-loop expression, just like the original LLVM tutorial implementation.
+Basic control flow in form of if-then-else, for-loop expression, just like the original LLVM tutorial implementation.
 
 ```sh
 Ready >> def double_if_less_than(num bound) if num < bound then num*2 else num;
