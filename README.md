@@ -149,7 +149,7 @@ Jit compiled and evaluated to: 16
 Ready >> 
 ```
 
-### External Function Definitions
+### External Function Declarations
 You can declare C standard library functions in your program, as long as they only accept double parameters and return double values. 
 
 ```sh
